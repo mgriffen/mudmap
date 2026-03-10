@@ -33,10 +33,13 @@ interface GridLayout {
   r: number       // corner radius px
 }
 
-const MAX_CELL = 80
-const MIN_CELL = 10
-const GAP_RATIO = 0.30   // gap = cell × GAP_RATIO
-const FIXED_PAD = 12     // canvas edge padding (fixed, not scaled)
+const MAX_CELL   = 80
+const MIN_CELL   = 10
+const GAP_RATIO  = 0.30   // gap = cell × GAP_RATIO
+const FIXED_PAD  = 12     // canvas edge padding (fixed, not scaled)
+const MIN_ZOOM   = 0.25
+const MAX_ZOOM   = 5.0
+const ZOOM_STEP  = 0.12   // multiplicative step per wheel tick
 
 function computeLayout(
   containerW: number,
@@ -61,8 +64,8 @@ function computeLayout(
   const cellFromH = factorH > 0 ? availH / factorH : MAX_CELL
 
   const cell = Math.min(MAX_CELL, Math.max(MIN_CELL, Math.floor(Math.min(cellFromW, cellFromH))))
-  const gap  = Math.max(6, Math.round(cell * GAP_RATIO))
-  const r    = Math.max(2, Math.round(cell * 0.06))
+  const gap  = Math.max(6, Math.floor(cell * GAP_RATIO))   // floor prevents totalH > containerH
+  const r    = Math.max(2, Math.floor(cell * 0.06))
 
   return { cell, gap, pad: FIXED_PAD, r }
 }
@@ -139,7 +142,47 @@ const C = {
   oneWayExit:         '#15803D',
   upMarker:           '#60A5FA',
   downMarker:         '#F97316',
+  multiSelectedFill:   '#3D1505',
+  multiSelectedBorder: '#F97316',
 } as const
+
+// ---------------------------------------------------------------------------
+// Terrain fill palette
+//
+// All colours are dark, low-saturation tints so white text stays readable
+// and nothing competes with the green selection or blue safe-room highlight.
+// Lightness is kept around 17-20 % HSL; saturation 15-35 % per hue family.
+// ---------------------------------------------------------------------------
+
+const TERRAIN_FILL: Record<string, string> = {
+  default:    '#1E293B',  // neutral slate  (baseline — no terrain set)
+  city:       '#1E2236',  // cool urban blue-grey
+  forest:     '#172C1C',  // deep forest green
+  plains:     '#1E2B13',  // muted olive-green
+  hills:      '#222819',  // warm olive
+  mountains:  '#1A1E2E',  // cold slate-blue
+  cave:       '#1C1A27',  // muted purple-grey
+  dungeon:    '#1E1823',  // dark charcoal-purple
+  ruins:      '#271E17',  // warm brownstone
+  swamp:      '#162219',  // murky dark green
+  desert:     '#2C2318',  // dark warm amber
+  tundra:     '#161F25',  // icy blue-grey
+  ocean:      '#0F2038',  // deep sea blue
+  river:      '#12253A',  // medium blue
+  lake:       '#121E32',  // calm deep blue
+  road:       '#27262D',  // neutral grey
+  building:   '#22201C',  // warm interior stone
+  custom:     '#21172A',  // distinct dark purple
+}
+
+/** Lighten a #rrggbb hex colour by adding `amount` to each channel. */
+function lightenHex(hex: string, amount = 14): string {
+  const n = parseInt(hex.slice(1), 16)
+  const r = Math.min(255, (n >> 16)        + amount)
+  const g = Math.min(255, ((n >> 8) & 0xff) + amount)
+  const b = Math.min(255, (n & 0xff)        + amount)
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+}
 
 // ---------------------------------------------------------------------------
 // Drawing primitives
@@ -193,7 +236,9 @@ function drawDownMarker(ctx: CanvasRenderingContext2D, rx: number, ry: number, c
 interface DrawState {
   hover: HitResult
   selectedRoomId: string | null
+  selectedRoomIds: Set<string>
   roomsByPos: Record<string, Room>
+  dragRect: { x: number; y: number; w: number; h: number } | null
 }
 
 function drawAll(
@@ -203,7 +248,7 @@ function drawAll(
   l: GridLayout,
 ) {
   const { width, height } = mapData
-  const { hover, selectedRoomId, roomsByPos } = ds
+  const { hover, selectedRoomId, selectedRoomIds, roomsByPos } = ds
   const cw = totalW(width,  l)
   const ch = totalH(height, l)
 
@@ -226,18 +271,21 @@ function drawAll(
         ctx.lineWidth   = 1
         ctx.stroke()
       } else {
-        const isSel = room.id === selectedRoomId
+        const isSel    = room.id === selectedRoomId
+        const isMulti  = selectedRoomIds.has(room.id)
         roundRect(ctx, x, y, l.cell, l.cell, l.r)
 
-        let fill: string = C.roomFill
-        if (room.safe_room && !isSel) fill = C.safeRoomFill
-        if (isHover && !isSel)        fill = C.roomHoverFill
-        if (isSel)                    fill = C.roomSelectedFill
+        const terrainFill = TERRAIN_FILL[room.terrain_type] ?? TERRAIN_FILL.default
+        let fill: string = terrainFill
+        if (room.safe_room && !isSel && !isMulti) fill = C.safeRoomFill
+        if (isHover && !isSel && !isMulti) fill = lightenHex(room.safe_room ? C.safeRoomFill : terrainFill)
+        if (isMulti && !isSel)             fill = C.multiSelectedFill
+        if (isSel)                         fill = C.roomSelectedFill
         ctx.fillStyle = fill
         ctx.fill()
 
-        ctx.strokeStyle = isSel ? C.roomSelectedBorder : C.roomBorder
-        ctx.lineWidth   = isSel ? 2 : 1
+        ctx.strokeStyle = isSel ? C.roomSelectedBorder : isMulti ? C.multiSelectedBorder : C.roomBorder
+        ctx.lineWidth   = isSel || isMulti ? 2 : 1
         ctx.stroke()
 
         // Labels — only when cell is large enough to read
@@ -380,6 +428,20 @@ function drawAll(
       }
     }
   }
+
+  // Rubber-band selection rectangle
+  if (ds.dragRect) {
+    const { x, y, w, h } = ds.dragRect
+    ctx.save()
+    ctx.strokeStyle = C.multiSelectedBorder
+    ctx.lineWidth = 1
+    ctx.setLineDash([5, 3])
+    ctx.strokeRect(x, y, w, h)
+    ctx.setLineDash([])
+    ctx.fillStyle = 'rgba(249, 115, 22, 0.07)'
+    ctx.fillRect(x, y, w, h)
+    ctx.restore()
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -394,22 +456,36 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
   const canvasRef    = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const hoverRef     = useRef<HitResult>(NO_HIT)
+  const dragStartRef = useRef<{ px: number; py: number } | null>(null)
+  const isDraggingRef = useRef(false)
+  const dragRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
+  const DRAG_THRESHOLD = 5
 
   // Container dimensions tracked via ResizeObserver
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
 
+  // Zoom: 1.0 = fit-to-screen (default), <1 = smaller, >1 = larger + scroll
+  const [zoom, setZoom]   = useState(1.0)
+  const zoomRef           = useRef(1.0)   // always in sync; readable inside callbacks
+
   const {
     mapData,
     selectedRoomId,
+    selectedRoomIds: selectedRoomIdsArr,
+    setSelectedRoomIds,
+    clearMultiSelect,
     getRoomAt,
     createRoom,
     selectRoom,
     deleteRoom,
+    deleteRooms,
     toggleGridExit,
     toggleVerticalExit,
     openRoomDataPanel,
     openExitOptionsPanel,
   } = useMapStore()
+
+  const selectedRoomIdsSet = useMemo(() => new Set(selectedRoomIdsArr), [selectedRoomIdsArr])
 
   // Observe container size changes and update state
   useEffect(() => {
@@ -423,14 +499,17 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     return () => ro.disconnect()
   }, [])
 
-  // Derive grid layout from container dimensions + grid size
-  const layout = useMemo(
-    () => computeLayout(
+  // Derive grid layout: fit-to-container base, then scale by zoom
+  const layout = useMemo(() => {
+    const base = computeLayout(
       containerSize.w, containerSize.h,
       mapData?.width ?? 10, mapData?.height ?? 10,
-    ),
-    [containerSize.w, containerSize.h, mapData?.width, mapData?.height],
-  )
+    )
+    const zoomedCell = Math.min(200, Math.max(4, Math.floor(base.cell * zoom)))
+    const gap = Math.max(4, Math.floor(zoomedCell * GAP_RATIO))
+    const r   = Math.max(2, Math.floor(zoomedCell * 0.06))
+    return { cell: zoomedCell, gap, pad: FIXED_PAD, r }
+  }, [containerSize.w, containerSize.h, mapData?.width, mapData?.height, zoom])
 
   // Build position index (x,y → Room) for fast rendering lookup
   const buildRoomsByPos = useCallback((): Record<string, Room> => {
@@ -450,24 +529,90 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     drawAll(ctx, mapData, {
       hover: hoverRef.current,
       selectedRoomId,
+      selectedRoomIds: selectedRoomIdsSet,
       roomsByPos: buildRoomsByPos(),
+      dragRect: dragRectRef.current,
     }, layout)
-  }, [mapData, selectedRoomId, buildRoomsByPos, layout])
+  }, [mapData, selectedRoomId, selectedRoomIdsSet, buildRoomsByPos, layout])
 
   // Redraw whenever map data, selection, or layout changes
   useEffect(() => { redraw() }, [redraw])
 
-  // Delete / Backspace key removes the selected room
+  // Delete / Backspace key removes the selected room; Ctrl+A selects all; Escape clears multi-select
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return
       const tag = (e.target as HTMLElement).tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-      if (selectedRoomId) deleteRoom(selectedRoomId)
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+
+      if (e.key === 'Escape') {
+        clearMultiSelect()
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        if (inInput) return
+        e.preventDefault()
+        if (!mapData) return
+        setSelectedRoomIds(Object.keys(mapData.rooms))
+        return
+      }
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      if (inInput) return
+      if (selectedRoomIdsArr.length > 1) {
+        deleteRooms(selectedRoomIdsArr)
+      } else if (selectedRoomId) {
+        deleteRoom(selectedRoomId)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedRoomId, deleteRoom])
+  }, [selectedRoomId, selectedRoomIdsArr, mapData, deleteRoom, deleteRooms, setSelectedRoomIds, clearMultiSelect])
+
+  // Mouse-wheel zoom — centres on cursor position
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    function onWheel(e: WheelEvent) {
+      e.preventDefault()
+      const canvas    = canvasRef.current
+      if (!canvas || !container) return
+
+      const factor    = e.deltaY < 0 ? (1 + ZOOM_STEP) : 1 / (1 + ZOOM_STEP)
+      const newZoom   = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomRef.current * factor))
+      const actualFactor = newZoom / zoomRef.current
+      zoomRef.current = newZoom
+      setZoom(newZoom)
+
+      // After React re-renders with new canvas size, adjust scroll so the
+      // canvas pixel under the cursor stays at the same screen position.
+      const canvasRect    = canvas.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      const cursorCanvasX = e.clientX - canvasRect.left
+      const cursorCanvasY = e.clientY - canvasRect.top
+      const cursorViewX   = e.clientX - containerRect.left
+      const cursorViewY   = e.clientY - containerRect.top
+      const c: HTMLDivElement = container  // captured non-null reference
+
+      requestAnimationFrame(() => {
+        const newCw  = canvas.width
+        const newCh  = canvas.height
+        const innerW = Math.max(c.clientWidth,  newCw)
+        const innerH = Math.max(c.clientHeight, newCh)
+        const canvasLeft = (innerW - newCw) / 2
+        const canvasTop  = (innerH - newCh) / 2
+        c.scrollLeft = canvasLeft + cursorCanvasX * actualFactor - cursorViewX
+        c.scrollTop  = canvasTop  + cursorCanvasY * actualFactor - cursorViewY
+      })
+    }
+
+    container.addEventListener('wheel', onWheel, { passive: false })
+    return () => container.removeEventListener('wheel', onWheel)
+  }, [])
+
+  function resetZoom() {
+    zoomRef.current = 1.0
+    setZoom(1.0)
+  }
 
   // ---------------------------------------------------------------------------
   // Event helpers
@@ -482,6 +627,27 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (!mapData) return
       const { px, py } = getCanvasPos(e)
+
+      // Rubber-band drag detection
+      if (dragStartRef.current) {
+        const dx = px - dragStartRef.current.px
+        const dy = py - dragStartRef.current.py
+        if (!isDraggingRef.current && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+          isDraggingRef.current = true
+        }
+        if (isDraggingRef.current) {
+          dragRectRef.current = {
+            x: dragStartRef.current.px,
+            y: dragStartRef.current.py,
+            w: dx,
+            h: dy,
+          }
+          hoverRef.current = NO_HIT
+          redraw()
+          return
+        }
+      }
+
       const hit  = hitTest(px, py, mapData.width, mapData.height, layout)
       const prev = hoverRef.current
       if (hit.type !== prev.type || hit.gx !== prev.gx || hit.gy !== prev.gy) {
@@ -494,14 +660,57 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
 
   const handleMouseLeave = useCallback(() => {
     hoverRef.current = NO_HIT
+    dragStartRef.current = null
+    isDraggingRef.current = false
+    dragRectRef.current = null
     redraw()
   }, [redraw])
 
-  const handleClick = useCallback(
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (e.button !== 0) return
+      const { px, py } = getCanvasPos(e)
+      dragStartRef.current = { px, py }
+      isDraggingRef.current = false
+      dragRectRef.current = null
+    },
+    [],
+  )
+
+  const handleMouseUp = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (!mapData) return
-      e.preventDefault()
       const { px, py } = getCanvasPos(e)
+
+      // ── Finish rubber-band drag ──────────────────────────────────────
+      if (isDraggingRef.current) {
+        const rect = dragRectRef.current
+        if (rect) {
+          const x0 = Math.min(rect.x, rect.x + rect.w)
+          const y0 = Math.min(rect.y, rect.y + rect.h)
+          const x1 = Math.max(rect.x, rect.x + rect.w)
+          const y1 = Math.max(rect.y, rect.y + rect.h)
+          const ids: string[] = []
+          for (const room of Object.values(mapData.rooms)) {
+            const rx = cellX(room.x, layout)
+            const ry = cellY(room.y, layout)
+            if (rx < x1 && rx + layout.cell > x0 && ry < y1 && ry + layout.cell > y0) {
+              ids.push(room.id)
+            }
+          }
+          setSelectedRoomIds(ids)
+        }
+        isDraggingRef.current = false
+        dragStartRef.current = null
+        dragRectRef.current = null
+        redraw()
+        return
+      }
+
+      dragStartRef.current = null
+      if (e.button !== 0) return
+      e.preventDefault()
+
       const hit = hitTest(px, py, mapData.width, mapData.height, layout)
 
       if (hit.type === 'room') {
@@ -509,16 +718,23 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
         const room = getRoomAt(gx, gy)
 
         if (!room) {
+          clearMultiSelect()
           const newRoom = createRoom(gx, gy)
           openRoomDataPanel(newRoom.id)
           onRoomCreated?.(newRoom.id)
+        } else if (e.shiftKey) {
+          // Shift+click: toggle room in/out of multi-selection
+          const next = selectedRoomIdsArr.includes(room.id)
+            ? selectedRoomIdsArr.filter((id) => id !== room.id)
+            : [...selectedRoomIdsArr, room.id]
+          setSelectedRoomIds(next)
         } else if (e.altKey) {
+          clearMultiSelect()
           openExitOptionsPanel(room.id)
         } else if (e.ctrlKey || e.metaKey) {
           toggleVerticalExit(room.id, 'down')
-        } else if (e.shiftKey) {
-          toggleVerticalExit(room.id, 'up')
         } else {
+          clearMultiSelect()
           selectRoom(room.id === selectedRoomId ? null : room.id)
         }
       } else if (hit.type === 'conn-e' || hit.type === 'conn-s') {
@@ -529,13 +745,18 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
         const roomA = getRoomAt(gx, gy)
         const roomB = getRoomAt(bx, by)
         if (roomA && roomB) toggleGridExit(gx, gy, bx, by, dir)
+      } else {
+        // Clicked empty space outside grid — clear selections
+        clearMultiSelect()
+        selectRoom(null)
       }
     },
     [
-      mapData, layout, selectedRoomId,
+      mapData, layout, selectedRoomId, selectedRoomIdsArr,
       getRoomAt, createRoom, selectRoom,
       toggleGridExit, toggleVerticalExit,
       openRoomDataPanel, openExitOptionsPanel, onRoomCreated,
+      setSelectedRoomIds, clearMultiSelect, redraw,
     ],
   )
 
@@ -568,22 +789,55 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
   const cw = totalW(mapData.width,  layout)
   const ch = totalH(mapData.height, layout)
 
+  const zoomPct = Math.round(zoom * 100)
+
   return (
-    <div
-      ref={containerRef}
-      className="flex-1 overflow-hidden flex items-start justify-start"
-    >
-      <canvas
-        ref={canvasRef}
-        width={cw}
-        height={ch}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-        onClick={handleClick}
-        onContextMenu={handleContextMenu}
-        className="block cursor-crosshair"
-        aria-label="Map editor grid"
-      />
+    <div className="flex-1 overflow-hidden relative">
+      {/* Scrollable canvas viewport */}
+      <div
+        ref={containerRef}
+        className="absolute inset-0 overflow-auto"
+      >
+        {/* Inner wrapper: always fills container; centres canvas when it fits */}
+        <div
+          style={{
+            minWidth:  containerSize.w,
+            minHeight: containerSize.h,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={cw}
+            height={ch}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            onMouseUp={handleMouseUp}
+            onContextMenu={handleContextMenu}
+            className="block cursor-crosshair"
+            aria-label="Map editor grid"
+          />
+        </div>
+      </div>
+
+      {/* Zoom indicator — bottom-right corner */}
+      {zoom !== 1.0 && (
+        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 z-10 pointer-events-none">
+          <div className="flex items-center gap-2 bg-surface/90 border border-border rounded-md px-2.5 py-1 shadow-lg text-xs text-muted backdrop-blur-sm pointer-events-auto">
+            <span className="tabular-nums font-mono">{zoomPct}%</span>
+            <button
+              onClick={resetZoom}
+              className="text-muted hover:text-text transition-colors cursor-pointer leading-none"
+              title="Reset zoom (100%)"
+            >
+              ↺
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

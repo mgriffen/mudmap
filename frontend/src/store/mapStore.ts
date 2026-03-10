@@ -12,6 +12,7 @@ import { create } from 'zustand'
 import type { MapData, Room, Exit, Direction } from '../types/map'
 import { OPPOSITE_DIR, generateId, createDefaultRoom } from '../types/map'
 import * as api from '../api/client'
+import { ROOM_TEMPLATES } from '../data/roomTemplates'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,11 +25,14 @@ interface MapStore {
 
   // UI state
   selectedRoomId: string | null
+  selectedRoomIds: string[]
   roomDataPanelRoomId: string | null
   exitOptionsPanelRoomId: string | null
   newMapDialogOpen: boolean
   mapListDialogOpen: boolean
   leftSidebarOpen: boolean
+  /** ID of the currently active room template, or null for blank rooms. */
+  activeTemplateId: string | null
 
   // -------------------------------------------------------------------------
   // Map lifecycle
@@ -55,6 +59,8 @@ interface MapStore {
   updateRoom: (roomId: string, updates: Partial<Room>) => void
   /** Remove a room and clean up all exits that reference it in other rooms. */
   deleteRoom: (roomId: string) => void
+  deleteRooms: (ids: string[]) => void
+  applyTemplateToRooms: (ids: string[], templateId: string) => void
 
   // -------------------------------------------------------------------------
   // Exit mutations
@@ -72,6 +78,8 @@ interface MapStore {
   // UI actions
   // -------------------------------------------------------------------------
   selectRoom: (roomId: string | null) => void
+  setSelectedRoomIds: (ids: string[]) => void
+  clearMultiSelect: () => void
   openRoomDataPanel: (roomId: string) => void
   closeRoomDataPanel: () => void
   openExitOptionsPanel: (roomId: string) => void
@@ -81,6 +89,7 @@ interface MapStore {
   openMapListDialog: () => void
   closeMapListDialog: () => void
   toggleLeftSidebar: () => void
+  setActiveTemplate: (id: string | null) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -106,16 +115,18 @@ export const useMapStore = create<MapStore>((set, get) => ({
   mapData: null,
   isDirty: false,
   selectedRoomId: null,
+  selectedRoomIds: [],
   roomDataPanelRoomId: null,
   exitOptionsPanelRoomId: null,
   newMapDialogOpen: false,
   mapListDialogOpen: false,
-  leftSidebarOpen: false,
+  leftSidebarOpen: true,
+  activeTemplateId: null,
 
   // --- Map lifecycle --------------------------------------------------------
 
   setMapData: (data) =>
-    set({ mapData: data, selectedRoomId: null, isDirty: false }),
+    set({ mapData: data, selectedRoomId: null, selectedRoomIds: [], isDirty: false }),
 
   createMap: (name, width, height) => {
     const mapData: MapData = {
@@ -130,6 +141,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
     set({
       mapData,
       selectedRoomId: null,
+      selectedRoomIds: [],
       isDirty: true,
       newMapDialogOpen: false,
       roomDataPanelRoomId: null,
@@ -186,7 +198,14 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
   createRoom: (x, y) => {
     const id = generateId()
-    const room = createDefaultRoom(id, x, y)
+    const { activeTemplateId } = get()
+    const template = activeTemplateId
+      ? ROOM_TEMPLATES.find((t) => t.id === activeTemplateId)
+      : null
+    const room: Room = {
+      ...createDefaultRoom(id, x, y),
+      ...(template ? { ...template.defaults, title: template.name } : {}),
+    }
     set((state) => ({
       mapData: state.mapData
         ? { ...state.mapData, rooms: { ...state.mapData.rooms, [id]: room } }
@@ -234,6 +253,42 @@ export const useMapStore = create<MapStore>((set, get) => ({
         exitOptionsPanelRoomId: state.exitOptionsPanelRoomId === roomId ? null : state.exitOptionsPanelRoomId,
         isDirty: true,
       }
+    })
+  },
+
+  deleteRooms: (ids) => {
+    set((state) => {
+      if (!state.mapData) return state
+      const idsSet = new Set(ids)
+      const rooms = { ...state.mapData.rooms }
+      for (const id of ids) delete rooms[id]
+      // Strip exits referencing deleted rooms
+      for (const id of Object.keys(rooms)) {
+        const r = rooms[id]
+        const exits = r.exits.filter((e) => !idsSet.has(e.target_room_id))
+        if (exits.length !== r.exits.length) rooms[id] = { ...r, exits }
+      }
+      return {
+        mapData: { ...state.mapData, rooms },
+        selectedRoomId: idsSet.has(state.selectedRoomId ?? '') ? null : state.selectedRoomId,
+        selectedRoomIds: [],
+        roomDataPanelRoomId: idsSet.has(state.roomDataPanelRoomId ?? '') ? null : state.roomDataPanelRoomId,
+        exitOptionsPanelRoomId: idsSet.has(state.exitOptionsPanelRoomId ?? '') ? null : state.exitOptionsPanelRoomId,
+        isDirty: true,
+      }
+    })
+  },
+
+  applyTemplateToRooms: (ids, templateId) => {
+    const template = ROOM_TEMPLATES.find((t) => t.id === templateId)
+    if (!template) return
+    set((state) => {
+      if (!state.mapData) return state
+      const rooms = { ...state.mapData.rooms }
+      for (const id of ids) {
+        if (rooms[id]) rooms[id] = { ...rooms[id], ...template.defaults }
+      }
+      return { mapData: { ...state.mapData, rooms }, isDirty: true }
     })
   },
 
@@ -337,6 +392,8 @@ export const useMapStore = create<MapStore>((set, get) => ({
   // --- UI actions ----------------------------------------------------------
 
   selectRoom: (roomId) => set({ selectedRoomId: roomId }),
+  setSelectedRoomIds: (ids) => set({ selectedRoomIds: ids }),
+  clearMultiSelect: () => set({ selectedRoomIds: [] }),
 
   openRoomDataPanel: (roomId) =>
     set({ roomDataPanelRoomId: roomId, exitOptionsPanelRoomId: null }),
@@ -353,4 +410,8 @@ export const useMapStore = create<MapStore>((set, get) => ({
   openMapListDialog: () => set({ mapListDialogOpen: true }),
   closeMapListDialog: () => set({ mapListDialogOpen: false }),
   toggleLeftSidebar: () => set((s) => ({ leftSidebarOpen: !s.leftSidebarOpen })),
+
+  setActiveTemplate: (id) => set((s) => ({
+    activeTemplateId: s.activeTemplateId === id ? null : id,
+  })),
 }))

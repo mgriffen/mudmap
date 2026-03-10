@@ -20,11 +20,14 @@ import { RoomDataPanel } from './components/RoomDataPanel'
 import { ExitOptionsPanel } from './components/ExitOptionsPanel'
 import { NewMapDialog } from './components/NewMapDialog'
 import { MapListDialog } from './components/MapListDialog'
+import { TevetharaPanel } from './components/TevetharaPanel'
+import { MultiSelectPanel } from './components/MultiSelectPanel'
 
 export default function App() {
   const {
     mapData, saveMap,
     roomDataPanelRoomId, exitOptionsPanelRoomId,
+    selectedRoomIds,
     leftSidebarOpen,
     openNewMapDialog,
   } = useMapStore()
@@ -40,8 +43,6 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [mapData, saveMap])
-
-  const hasSidePanel = !!(roomDataPanelRoomId || exitOptionsPanelRoomId)
 
   return (
     <div className="h-screen flex flex-col bg-canvas text-text overflow-hidden">
@@ -61,13 +62,11 @@ export default function App() {
           )}
         </div>
 
-        {/* Right panels — reserving space in the flex row keeps canvas from overlapping */}
-        {hasSidePanel && (
-          <>
-            {roomDataPanelRoomId    && <RoomDataPanel />}
-            {exitOptionsPanelRoomId && <ExitOptionsPanel />}
-          </>
-        )}
+        {/* Right panel — always present; shows world lore until a room is active */}
+        {selectedRoomIds.length > 1    ? <MultiSelectPanel />   :
+         roomDataPanelRoomId           ? <RoomDataPanel />       :
+         exitOptionsPanelRoomId        ? <ExitOptionsPanel />    :
+                                         <TevetharaPanel />}
       </div>
 
       {/* Modal overlays */}

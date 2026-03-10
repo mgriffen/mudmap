@@ -2,7 +2,7 @@
  * Toolbar — top bar with map controls and status info.
  */
 import { useState } from 'react'
-import { FilePlus, FolderOpen, Save, Info, ChevronUp, ChevronDown, PanelLeft } from 'lucide-react'
+import { FilePlus, FolderOpen, Save, Info, PanelLeft } from 'lucide-react'
 import { useMapStore } from '../store/mapStore'
 
 export function Toolbar() {
@@ -37,88 +37,84 @@ export function Toolbar() {
   const roomCount = mapData ? Object.keys(mapData.rooms).length : 0
 
   return (
-    <header className="flex items-center gap-3 px-4 py-2.5 bg-surface border-b border-border shrink-0">
-      {/* Left sidebar toggle */}
-      <button
-        onClick={toggleLeftSidebar}
-        title={leftSidebarOpen ? 'Close side panel' : 'Open side panel'}
-        className={`flex items-center justify-center w-7 h-7 rounded transition-colors cursor-pointer ${
-          leftSidebarOpen
-            ? 'text-accent bg-surface2'
-            : 'text-muted hover:text-text hover:bg-surface2'
-        }`}
-      >
-        <PanelLeft size={15} />
-      </button>
+    <header className="relative flex items-center px-4 py-2.5 bg-surface border-b border-border shrink-0">
 
-      {/* App name */}
-      <span className="font-heading font-bold text-accent text-base tracking-tight mr-2">
-        mudmap
-      </span>
+      {/* ── Left group ── */}
+      <div className="flex items-center gap-3 z-10">
+        <button
+          onClick={toggleLeftSidebar}
+          title={leftSidebarOpen ? 'Close side panel' : 'Open side panel'}
+          className={`flex items-center justify-center w-7 h-7 rounded transition-colors cursor-pointer ${
+            leftSidebarOpen
+              ? 'text-accent bg-surface2'
+              : 'text-muted hover:text-text hover:bg-surface2'
+          }`}
+        >
+          <PanelLeft size={15} />
+        </button>
 
-      {/* Primary actions */}
-      <button
-        onClick={openNewMapDialog}
-        className="flex items-center gap-1.5 text-xs text-text hover:text-accent px-2 py-1 rounded hover:bg-surface2 transition-colors cursor-pointer"
-        title="New Map"
-      >
-        <FilePlus size={14} />
-        New
-      </button>
+        <span className="font-heading font-bold text-accent text-base tracking-tight">
+          mudmap
+        </span>
 
-      <button
-        onClick={openMapListDialog}
-        className="flex items-center gap-1.5 text-xs text-text hover:text-accent px-2 py-1 rounded hover:bg-surface2 transition-colors cursor-pointer"
-        title="Open Map"
-      >
-        <FolderOpen size={14} />
-        Open
-      </button>
+        <div className="h-4 w-px bg-border" />
 
-      <button
-        onClick={handleSave}
-        disabled={!mapData || saving}
-        className="flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-text hover:text-accent hover:bg-surface2"
-        title="Save Map (Ctrl+S)"
-      >
-        <Save size={14} />
-        {saving ? 'Saving…' : isDirty ? 'Save*' : 'Save'}
-      </button>
+        <button
+          onClick={openNewMapDialog}
+          className="flex items-center gap-1.5 text-xs text-text hover:text-accent px-2 py-1 rounded hover:bg-surface2 transition-colors cursor-pointer"
+          title="New Map"
+        >
+          <FilePlus size={14} />
+          New
+        </button>
 
-      {/* Divider */}
-      <div className="h-4 w-px bg-border mx-1" />
+        <button
+          onClick={openMapListDialog}
+          className="flex items-center gap-1.5 text-xs text-text hover:text-accent px-2 py-1 rounded hover:bg-surface2 transition-colors cursor-pointer"
+          title="Open Map"
+        >
+          <FolderOpen size={14} />
+          Open
+        </button>
 
-      {/* Map info + grid resize */}
-      {mapData ? (
-        <>
-          <span className="text-sm text-text font-medium font-heading truncate max-w-48">
-            {mapData.name}
+        <button
+          onClick={handleSave}
+          disabled={!mapData || saving}
+          className="flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-text hover:text-accent hover:bg-surface2"
+          title="Save Map (Ctrl+S)"
+        >
+          <Save size={14} />
+          {saving ? 'Saving…' : isDirty ? 'Save*' : 'Save'}
+        </button>
+
+        {saveMsg && (
+          <span className={`text-xs ${saveMsg.startsWith('Error') ? 'text-red-400' : 'text-accent'}`}>
+            {saveMsg}
           </span>
-          <GridResizeControl />
+        )}
+      </div>
+
+      {/* ── Centre: grid resize controls ── */}
+      <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1">
+        <GridResizeControl />
+      </div>
+
+      {/* ── Right group ── */}
+      <div className="flex items-center gap-3 ml-auto z-10">
+        {mapData && (
           <span className="text-xs text-muted">
-            {roomCount} room{roomCount !== 1 ? 's' : ''}
+            {mapData.name} · {roomCount} room{roomCount !== 1 ? 's' : ''}
           </span>
-          {saveMsg && (
-            <span className={`text-xs ml-2 ${saveMsg.startsWith('Error') ? 'text-red-400' : 'text-accent'}`}>
-              {saveMsg}
-            </span>
-          )}
-        </>
-      ) : (
-        <span className="text-xs text-muted italic">No map loaded</span>
-      )}
+        )}
+        <KeyHints />
+      </div>
 
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Keyboard hints toggle */}
-      <KeyHints />
     </header>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Grid resize control — inline +/- buttons for width and height
+// Grid resize control — textured +/- buttons, centred in toolbar
 // ---------------------------------------------------------------------------
 function GridResizeControl() {
   const { mapData, resizeMap } = useMapStore()
@@ -126,13 +122,11 @@ function GridResizeControl() {
 
   if (!mapData) return null
 
-  // Compute the minimum safe dimensions from current room positions
-  const rooms = Object.values(mapData.rooms)
-  const maxOccupiedX = rooms.length ? Math.max(...rooms.map((r) => r.x)) : -1
-  const maxOccupiedY = rooms.length ? Math.max(...rooms.map((r) => r.y)) : -1
-  // Shrinking to newWidth is safe only if newWidth > maxOccupiedX
-  const canShrinkW = mapData.width - 1 > maxOccupiedX && mapData.width > 1
-  const canShrinkH = mapData.height - 1 > maxOccupiedY && mapData.height > 1
+  const rooms       = Object.values(mapData.rooms)
+  const maxX        = rooms.length ? Math.max(...rooms.map((r) => r.x)) : -1
+  const maxY        = rooms.length ? Math.max(...rooms.map((r) => r.y)) : -1
+  const canShrinkW  = mapData.width  - 1 > maxX && mapData.width  > 1
+  const canShrinkH  = mapData.height - 1 > maxY && mapData.height > 1
 
   function attempt(newW: number, newH: number) {
     const err = resizeMap(newW, newH)
@@ -143,48 +137,55 @@ function GridResizeControl() {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
+
       {/* Width control */}
-      <div className="flex items-center gap-0.5">
-        <span className="text-xs text-muted mr-1">W</span>
+      <div className="flex items-center gap-0 rounded-md overflow-hidden border border-border shadow-[0_2px_4px_rgba(0,0,0,0.4)]">
         <DimButton
-          direction="down"
+          label="−"
           disabled={!canShrinkW}
           title={canShrinkW ? 'Decrease width' : `Column ${mapData.width - 1} is occupied`}
           onClick={() => attempt(mapData.width - 1, mapData.height)}
         />
-        <span className="text-xs text-text w-6 text-center tabular-nums">{mapData.width}</span>
+        <div className="flex flex-col items-center justify-center px-3 py-0.5 bg-[#0a1020] border-x border-border min-w-[3.5rem]"
+             style={{ boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.5)' }}>
+          <span className="text-[9px] font-semibold uppercase tracking-widest text-muted leading-none mb-0.5">Width</span>
+          <span className="text-sm font-bold tabular-nums text-text leading-none">{mapData.width}</span>
+        </div>
         <DimButton
-          direction="up"
+          label="+"
           disabled={mapData.width >= 50}
           title="Increase width"
           onClick={() => attempt(mapData.width + 1, mapData.height)}
         />
       </div>
 
-      <span className="text-xs text-muted">×</span>
+      {/* Separator */}
+      <span className="text-muted text-base font-light select-none">×</span>
 
       {/* Height control */}
-      <div className="flex items-center gap-0.5">
-        <span className="text-xs text-muted mr-1">H</span>
+      <div className="flex items-center gap-0 rounded-md overflow-hidden border border-border shadow-[0_2px_4px_rgba(0,0,0,0.4)]">
         <DimButton
-          direction="down"
+          label="−"
           disabled={!canShrinkH}
           title={canShrinkH ? 'Decrease height' : `Row ${mapData.height - 1} is occupied`}
           onClick={() => attempt(mapData.width, mapData.height - 1)}
         />
-        <span className="text-xs text-text w-6 text-center tabular-nums">{mapData.height}</span>
+        <div className="flex flex-col items-center justify-center px-3 py-0.5 bg-[#0a1020] border-x border-border min-w-[3.5rem]"
+             style={{ boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.5)' }}>
+          <span className="text-[9px] font-semibold uppercase tracking-widest text-muted leading-none mb-0.5">Height</span>
+          <span className="text-sm font-bold tabular-nums text-text leading-none">{mapData.height}</span>
+        </div>
         <DimButton
-          direction="up"
+          label="+"
           disabled={mapData.height >= 50}
           title="Increase height"
           onClick={() => attempt(mapData.width, mapData.height + 1)}
         />
       </div>
 
-      {/* Transient error message */}
       {error && (
-        <span className="text-xs text-red-400 max-w-48 truncate" title={error}>
+        <span className="text-xs text-red-400 max-w-36 truncate absolute top-full mt-1 left-1/2 -translate-x-1/2 bg-surface border border-border rounded px-2 py-1 shadow-lg" title={error}>
           {error}
         </span>
       )}
@@ -193,12 +194,12 @@ function GridResizeControl() {
 }
 
 function DimButton({
-  direction,
+  label,
   disabled,
   title,
   onClick,
 }: {
-  direction: 'up' | 'down'
+  label: string
   disabled: boolean
   title: string
   onClick: () => void
@@ -208,9 +209,21 @@ function DimButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="flex items-center justify-center w-5 h-5 rounded text-muted hover:text-text hover:bg-surface2 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted"
+      className="
+        w-8 h-9 flex items-center justify-center
+        text-base font-bold text-slate-300
+        bg-gradient-to-b from-slate-700 to-slate-800
+        hover:from-slate-600 hover:to-slate-700
+        active:from-slate-900 active:to-slate-900
+        transition-colors cursor-pointer select-none
+        disabled:opacity-25 disabled:cursor-not-allowed
+        disabled:hover:from-slate-700 disabled:hover:to-slate-800
+      "
+      style={{
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.3)',
+      }}
     >
-      {direction === 'up' ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+      {label}
     </button>
   )
 }

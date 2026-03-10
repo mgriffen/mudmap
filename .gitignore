@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv
+.python-version
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Map data (runtime-generated; untrack unless you want to version maps)
+# maps/*.json
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Claude Code tooling (local dev assistant files)
+.claude/

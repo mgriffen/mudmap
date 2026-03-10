@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Prevent context menu flash on canvas right-click */
+canvas {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Scrollbar styling to match the dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0F172A;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4B6070;
+}
+
+/* Input / textarea base styling */
+input, textarea, select {
+  background-color: #0F172A;
+  color: #F8FAFC;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: 'Open Sans', sans-serif;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 150ms;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: #22C55E;
+}
+
+input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  accent-color: #22C55E;
+  cursor: pointer;
+}
+
+/* Panel animations */
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.panel-slide-in {
+  animation: slideInRight 150ms ease-out forwards;
+}

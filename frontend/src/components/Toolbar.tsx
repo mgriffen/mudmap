@@ -2,7 +2,7 @@
  * Toolbar — top bar with map controls and status info.
  */
 import { useState } from 'react'
-import { FilePlus, FolderOpen, Save, Info } from 'lucide-react'
+import { FilePlus, FolderOpen, Save, Info, ChevronUp, ChevronDown, PanelLeft } from 'lucide-react'
 import { useMapStore } from '../store/mapStore'
 
 export function Toolbar() {
@@ -12,6 +12,8 @@ export function Toolbar() {
     saveMap,
     openNewMapDialog,
     openMapListDialog,
+    leftSidebarOpen,
+    toggleLeftSidebar,
   } = useMapStore()
 
   const [saving, setSaving] = useState(false)
@@ -36,6 +38,19 @@ export function Toolbar() {
 
   return (
     <header className="flex items-center gap-3 px-4 py-2.5 bg-surface border-b border-border shrink-0">
+      {/* Left sidebar toggle */}
+      <button
+        onClick={toggleLeftSidebar}
+        title={leftSidebarOpen ? 'Close side panel' : 'Open side panel'}
+        className={`flex items-center justify-center w-7 h-7 rounded transition-colors cursor-pointer ${
+          leftSidebarOpen
+            ? 'text-accent bg-surface2'
+            : 'text-muted hover:text-text hover:bg-surface2'
+        }`}
+      >
+        <PanelLeft size={15} />
+      </button>
+
       {/* App name */}
       <span className="font-heading font-bold text-accent text-base tracking-tight mr-2">
         mudmap
@@ -73,15 +88,13 @@ export function Toolbar() {
       {/* Divider */}
       <div className="h-4 w-px bg-border mx-1" />
 
-      {/* Map info */}
+      {/* Map info + grid resize */}
       {mapData ? (
         <>
           <span className="text-sm text-text font-medium font-heading truncate max-w-48">
             {mapData.name}
           </span>
-          <span className="text-xs text-muted">
-            {mapData.width}×{mapData.height}
-          </span>
+          <GridResizeControl />
           <span className="text-xs text-muted">
             {roomCount} room{roomCount !== 1 ? 's' : ''}
           </span>
@@ -101,6 +114,104 @@ export function Toolbar() {
       {/* Keyboard hints toggle */}
       <KeyHints />
     </header>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Grid resize control — inline +/- buttons for width and height
+// ---------------------------------------------------------------------------
+function GridResizeControl() {
+  const { mapData, resizeMap } = useMapStore()
+  const [error, setError] = useState<string | null>(null)
+
+  if (!mapData) return null
+
+  // Compute the minimum safe dimensions from current room positions
+  const rooms = Object.values(mapData.rooms)
+  const maxOccupiedX = rooms.length ? Math.max(...rooms.map((r) => r.x)) : -1
+  const maxOccupiedY = rooms.length ? Math.max(...rooms.map((r) => r.y)) : -1
+  // Shrinking to newWidth is safe only if newWidth > maxOccupiedX
+  const canShrinkW = mapData.width - 1 > maxOccupiedX && mapData.width > 1
+  const canShrinkH = mapData.height - 1 > maxOccupiedY && mapData.height > 1
+
+  function attempt(newW: number, newH: number) {
+    const err = resizeMap(newW, newH)
+    if (err) {
+      setError(err)
+      setTimeout(() => setError(null), 3000)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Width control */}
+      <div className="flex items-center gap-0.5">
+        <span className="text-xs text-muted mr-1">W</span>
+        <DimButton
+          direction="down"
+          disabled={!canShrinkW}
+          title={canShrinkW ? 'Decrease width' : `Column ${mapData.width - 1} is occupied`}
+          onClick={() => attempt(mapData.width - 1, mapData.height)}
+        />
+        <span className="text-xs text-text w-6 text-center tabular-nums">{mapData.width}</span>
+        <DimButton
+          direction="up"
+          disabled={mapData.width >= 50}
+          title="Increase width"
+          onClick={() => attempt(mapData.width + 1, mapData.height)}
+        />
+      </div>
+
+      <span className="text-xs text-muted">×</span>
+
+      {/* Height control */}
+      <div className="flex items-center gap-0.5">
+        <span className="text-xs text-muted mr-1">H</span>
+        <DimButton
+          direction="down"
+          disabled={!canShrinkH}
+          title={canShrinkH ? 'Decrease height' : `Row ${mapData.height - 1} is occupied`}
+          onClick={() => attempt(mapData.width, mapData.height - 1)}
+        />
+        <span className="text-xs text-text w-6 text-center tabular-nums">{mapData.height}</span>
+        <DimButton
+          direction="up"
+          disabled={mapData.height >= 50}
+          title="Increase height"
+          onClick={() => attempt(mapData.width, mapData.height + 1)}
+        />
+      </div>
+
+      {/* Transient error message */}
+      {error && (
+        <span className="text-xs text-red-400 max-w-48 truncate" title={error}>
+          {error}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function DimButton({
+  direction,
+  disabled,
+  title,
+  onClick,
+}: {
+  direction: 'up' | 'down'
+  disabled: boolean
+  title: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="flex items-center justify-center w-5 h-5 rounded text-muted hover:text-text hover:bg-surface2 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted"
+    >
+      {direction === 'up' ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+    </button>
   )
 }
 
@@ -131,6 +242,7 @@ function KeyHints() {
                 ['Shift+click room',   'Toggle UP exit'],
                 ['Ctrl+click room',    'Toggle DOWN exit'],
                 ['Click connector',    'Toggle N/S/E/W exit'],
+              ['Delete / Backspace', 'Delete selected room'],
               ].map(([key, desc]) => (
                 <tr key={key}>
                   <td className="py-0.5 pr-3 text-text font-mono text-xs whitespace-nowrap">{key}</td>

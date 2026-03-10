@@ -28,6 +28,7 @@ interface MapStore {
   exitOptionsPanelRoomId: string | null
   newMapDialogOpen: boolean
   mapListDialogOpen: boolean
+  leftSidebarOpen: boolean
 
   // -------------------------------------------------------------------------
   // Map lifecycle
@@ -35,6 +36,11 @@ interface MapStore {
   setMapData: (data: MapData) => void
   createMap: (name: string, width: number, height: number) => MapData
   saveMap: () => Promise<void>
+  /**
+   * Resize the grid. Returns null on success, or an error string if
+   * shrinking would cut off an existing room.
+   */
+  resizeMap: (newWidth: number, newHeight: number) => string | null
 
   // -------------------------------------------------------------------------
   // Room helpers
@@ -47,6 +53,8 @@ interface MapStore {
   // -------------------------------------------------------------------------
   createRoom: (x: number, y: number) => Room
   updateRoom: (roomId: string, updates: Partial<Room>) => void
+  /** Remove a room and clean up all exits that reference it in other rooms. */
+  deleteRoom: (roomId: string) => void
 
   // -------------------------------------------------------------------------
   // Exit mutations
@@ -72,6 +80,7 @@ interface MapStore {
   closeNewMapDialog: () => void
   openMapListDialog: () => void
   closeMapListDialog: () => void
+  toggleLeftSidebar: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +110,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
   exitOptionsPanelRoomId: null,
   newMapDialogOpen: false,
   mapListDialogOpen: false,
+  leftSidebarOpen: false,
 
   // --- Map lifecycle --------------------------------------------------------
 
@@ -141,6 +151,27 @@ export const useMapStore = create<MapStore>((set, get) => ({
     set({ mapData: updated, isDirty: false })
   },
 
+  resizeMap: (newWidth, newHeight) => {
+    const { mapData } = get()
+    if (!mapData) return 'No map loaded'
+
+    const MIN = 1
+    if (newWidth < MIN || newHeight < MIN) return `Minimum size is ${MIN}×${MIN}`
+
+    // Check that no existing room would fall outside the new bounds
+    const rooms = Object.values(mapData.rooms)
+    const blockedX = rooms.find((r) => r.x >= newWidth)
+    const blockedY = rooms.find((r) => r.y >= newHeight)
+    if (blockedX) return `Column ${newWidth} is occupied — remove rooms there first`
+    if (blockedY) return `Row ${newHeight} is occupied — remove rooms there first`
+
+    set((state) => ({
+      mapData: state.mapData ? { ...state.mapData, width: newWidth, height: newHeight } : null,
+      isDirty: true,
+    }))
+    return null
+  },
+
   // --- Room helpers ---------------------------------------------------------
 
   getRoom: (roomId) => get().mapData?.rooms[roomId],
@@ -173,6 +204,34 @@ export const useMapStore = create<MapStore>((set, get) => ({
       if (!room) return state
       return {
         mapData: patchRooms(state.mapData, { [roomId]: updates }),
+        isDirty: true,
+      }
+    })
+  },
+
+  deleteRoom: (roomId) => {
+    set((state) => {
+      if (!state.mapData) return state
+      if (!state.mapData.rooms[roomId]) return state
+
+      // Remove the room itself
+      const rooms = { ...state.mapData.rooms }
+      delete rooms[roomId]
+
+      // Strip any exits pointing at the deleted room from all remaining rooms
+      for (const id of Object.keys(rooms)) {
+        const r = rooms[id]
+        const filtered = r.exits.filter((e) => e.target_room_id !== roomId)
+        if (filtered.length !== r.exits.length) {
+          rooms[id] = { ...r, exits: filtered }
+        }
+      }
+
+      return {
+        mapData: { ...state.mapData, rooms },
+        selectedRoomId: state.selectedRoomId === roomId ? null : state.selectedRoomId,
+        roomDataPanelRoomId: state.roomDataPanelRoomId === roomId ? null : state.roomDataPanelRoomId,
+        exitOptionsPanelRoomId: state.exitOptionsPanelRoomId === roomId ? null : state.exitOptionsPanelRoomId,
         isDirty: true,
       }
     })
@@ -293,4 +352,5 @@ export const useMapStore = create<MapStore>((set, get) => ({
   closeNewMapDialog: () => set({ newMapDialogOpen: false }),
   openMapListDialog: () => set({ mapListDialogOpen: true }),
   closeMapListDialog: () => set({ mapListDialogOpen: false }),
+  toggleLeftSidebar: () => set((s) => ({ leftSidebarOpen: !s.leftSidebarOpen })),
 }))

@@ -15,14 +15,19 @@ import { useEffect } from 'react'
 import { useMapStore } from './store/mapStore'
 import { Toolbar } from './components/Toolbar'
 import { MapCanvas } from './components/MapCanvas'
+import { LeftSidebar } from './components/LeftSidebar'
 import { RoomDataPanel } from './components/RoomDataPanel'
 import { ExitOptionsPanel } from './components/ExitOptionsPanel'
 import { NewMapDialog } from './components/NewMapDialog'
 import { MapListDialog } from './components/MapListDialog'
 
 export default function App() {
-  const { mapData, saveMap, roomDataPanelRoomId, exitOptionsPanelRoomId, openNewMapDialog } =
-    useMapStore()
+  const {
+    mapData, saveMap,
+    roomDataPanelRoomId, exitOptionsPanelRoomId,
+    leftSidebarOpen,
+    openNewMapDialog,
+  } = useMapStore()
 
   // Ctrl+S / Cmd+S to save
   useEffect(() => {
@@ -44,7 +49,10 @@ export default function App() {
 
       {/* Main content area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Canvas area — takes remaining space, scrolls internally */}
+        {/* Left sidebar */}
+        {leftSidebarOpen && <LeftSidebar />}
+
+        {/* Canvas area — fills remaining space; ResizeObserver handles sizing */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {mapData ? (
             <MapCanvas />
@@ -53,10 +61,10 @@ export default function App() {
           )}
         </div>
 
-        {/* Side panels (conditionally rendered) */}
+        {/* Right panels — reserving space in the flex row keeps canvas from overlapping */}
         {hasSidePanel && (
           <>
-            {roomDataPanelRoomId  && <RoomDataPanel />}
+            {roomDataPanelRoomId    && <RoomDataPanel />}
             {exitOptionsPanelRoomId && <ExitOptionsPanel />}
           </>
         )}

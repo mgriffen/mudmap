@@ -13,8 +13,8 @@
  *   - Interaction Features
  *   - Combat / Special Rules
  */
-import { useCallback } from 'react'
-import { X } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { X, Trash2 } from 'lucide-react'
 import { useMapStore } from '../store/mapStore'
 import type { Room } from '../types/map'
 
@@ -188,7 +188,8 @@ const BIOMES = [
 // Main panel component
 // ---------------------------------------------------------------------------
 export function RoomDataPanel() {
-  const { mapData, roomDataPanelRoomId, updateRoom, closeRoomDataPanel } = useMapStore()
+  const { mapData, roomDataPanelRoomId, updateRoom, deleteRoom, closeRoomDataPanel } = useMapStore()
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   if (!roomDataPanelRoomId || !mapData) return null
   const room = mapData.rooms[roomDataPanelRoomId]
@@ -377,6 +378,35 @@ export function RoomDataPanel() {
           />
         </Field>
 
+      </div>
+
+      {/* ── Delete Room footer ─────────────────────────────────────── */}
+      <div className="shrink-0 px-4 py-3 border-t border-border">
+        {confirmDelete ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-red-400 flex-1">Delete this room?</span>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="text-xs text-muted hover:text-text px-2 py-1 rounded border border-border transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => deleteRoom(room.id)}
+              className="text-xs text-canvas bg-red-600 hover:bg-red-500 px-3 py-1 rounded font-semibold transition-colors cursor-pointer"
+            >
+              Delete
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="flex items-center gap-2 text-xs text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+          >
+            <Trash2 size={13} />
+            Delete Room
+          </button>
+        )}
       </div>
     </aside>
   )

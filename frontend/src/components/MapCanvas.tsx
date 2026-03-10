@@ -12,15 +12,20 @@
  *   Active room        left-click           → select / deselect
  *   Active room        right-click          → open Room Data panel
  *   Active room        alt+click            → open Exit Options panel
- *   Active room        ctrl/cmd+click       → toggle DOWN exit
- *   Active room        shift+click          → toggle UP exit
+ *   Active room        shift+click          → open Floor Exit Wizard (up/down link)
+ *   Active room        ctrl+click           → add/remove from multi-selection
  *   Connector (E/W)    left-click           → toggle E↔W exit
  *   Connector (N/S)    left-click           → toggle N↔S exit
  *   Selected room      Delete / Backspace   → delete room
+ *
+ * Link mode (enabled from toolbar):
+ *   Click room 1       → set as link source (purple highlight)
+ *   Click room 2       → open Portal Direction Picker → creates exit
+ *   Click empty space  → cancel link mode
  */
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react'
 import { useMapStore } from '../store/mapStore'
-import type { Room, Direction } from '../types/map'
+import type { Floor, Room, Direction } from '../types/map'
 
 // ---------------------------------------------------------------------------
 // Layout computation
@@ -35,11 +40,11 @@ interface GridLayout {
 
 const MAX_CELL   = 80
 const MIN_CELL   = 10
-const GAP_RATIO  = 0.30   // gap = cell × GAP_RATIO
-const FIXED_PAD  = 12     // canvas edge padding (fixed, not scaled)
+const GAP_RATIO  = 0.30
+const FIXED_PAD  = 12
 const MIN_ZOOM   = 0.25
 const MAX_ZOOM   = 5.0
-const ZOOM_STEP  = 0.12   // multiplicative step per wheel tick
+const ZOOM_STEP  = 0.12
 
 function computeLayout(
   containerW: number,
@@ -52,26 +57,20 @@ function computeLayout(
     const gap = Math.round(defaultCell * GAP_RATIO)
     return { cell: defaultCell, gap, pad: FIXED_PAD, r: 5 }
   }
-
-  // Solve for cell size that makes the full grid fit in the container.
-  // Total width  = 2*pad + gridW*cell + (gridW-1)*gap
-  //              = 2*pad + cell*(gridW + (gridW-1)*GAP_RATIO)
   const availW = containerW - FIXED_PAD * 2
   const availH = containerH - FIXED_PAD * 2
   const factorW = gridW + Math.max(0, gridW - 1) * GAP_RATIO
   const factorH = gridH + Math.max(0, gridH - 1) * GAP_RATIO
   const cellFromW = factorW > 0 ? availW / factorW : MAX_CELL
   const cellFromH = factorH > 0 ? availH / factorH : MAX_CELL
-
   const cell = Math.min(MAX_CELL, Math.max(MIN_CELL, Math.floor(Math.min(cellFromW, cellFromH))))
-  const gap  = Math.max(6, Math.floor(cell * GAP_RATIO))   // floor prevents totalH > containerH
+  const gap  = Math.max(6, Math.floor(cell * GAP_RATIO))
   const r    = Math.max(2, Math.floor(cell * 0.06))
-
   return { cell, gap, pad: FIXED_PAD, r }
 }
 
 // ---------------------------------------------------------------------------
-// Geometry helpers (all take GridLayout)
+// Geometry helpers
 // ---------------------------------------------------------------------------
 
 function cellX(gx: number, l: GridLayout): number { return l.pad + gx * (l.cell + l.gap) }
@@ -95,17 +94,14 @@ function hitTest(
   const lx = px - l.pad
   const ly = py - l.pad
   if (lx < 0 || ly < 0) return NO_HIT
-
   const slot = l.cell + l.gap
   const gx   = Math.floor(lx / slot)
   const gy   = Math.floor(ly / slot)
   if (gx < 0 || gy < 0) return NO_HIT
-
   const remX    = lx - gx * slot
   const remY    = ly - gy * slot
   const inCellX = remX < l.cell
   const inCellY = remY < l.cell
-
   if (inCellX && inCellY) {
     if (gx < width && gy < height) return { type: 'room', gx, gy }
   } else if (!inCellX && inCellY) {
@@ -121,64 +117,59 @@ function hitTest(
 // ---------------------------------------------------------------------------
 
 const C = {
-  bg:                 '#0F172A',
-  emptyFill:          '#131C2E',
-  emptyBorder:        '#1E293B',
-  emptyHoverFill:     '#182035',
-  emptyHoverBorder:   '#334155',
-  roomFill:           '#1E293B',
-  roomBorder:         '#334155',
-  roomHoverFill:      '#243347',
-  roomSelectedFill:   '#14532D',
-  roomSelectedBorder: '#22C55E',
-  safeRoomFill:       '#1E3A5F',
-  roomText:           '#F8FAFC',
-  roomTextMuted:      '#64748B',
-  connectorDot:       '#2D3F55',
-  connectorHover:     '#22C55E',
-  exitBar:            '#22C55E',
-  exitBarDim:         '#166534',
-  exitArrow:          '#22C55E',
-  oneWayExit:         '#15803D',
-  upMarker:           '#60A5FA',
-  downMarker:         '#F97316',
+  bg:                  '#0F172A',
+  emptyFill:           '#131C2E',
+  emptyBorder:         '#1E293B',
+  emptyHoverFill:      '#182035',
+  emptyHoverBorder:    '#334155',
+  roomFill:            '#1E293B',
+  roomBorder:          '#334155',
+  roomHoverFill:       '#243347',
+  roomSelectedFill:    '#14532D',
+  roomSelectedBorder:  '#22C55E',
+  safeRoomFill:        '#1E3A5F',
+  roomText:            '#F8FAFC',
+  roomTextMuted:       '#64748B',
+  connectorDot:        '#2D3F55',
+  connectorHover:      '#22C55E',
+  exitBar:             '#22C55E',
+  exitBarDim:          '#166534',
+  exitArrow:           '#22C55E',
+  oneWayExit:          '#15803D',
+  upMarker:            '#60A5FA',
+  downMarker:          '#F97316',
+  brokenExit:          '#EF4444',
   multiSelectedFill:   '#3D1505',
   multiSelectedBorder: '#F97316',
+  linkSourceFill:      '#2D1B4E',
+  linkSourceBorder:    '#A855F7',
+  linkModeFill:        '#1A1428',
 } as const
 
-// ---------------------------------------------------------------------------
-// Terrain fill palette
-//
-// All colours are dark, low-saturation tints so white text stays readable
-// and nothing competes with the green selection or blue safe-room highlight.
-// Lightness is kept around 17-20 % HSL; saturation 15-35 % per hue family.
-// ---------------------------------------------------------------------------
-
 const TERRAIN_FILL: Record<string, string> = {
-  default:    '#1E293B',  // neutral slate  (baseline — no terrain set)
-  city:       '#1E2236',  // cool urban blue-grey
-  forest:     '#172C1C',  // deep forest green
-  plains:     '#1E2B13',  // muted olive-green
-  hills:      '#222819',  // warm olive
-  mountains:  '#1A1E2E',  // cold slate-blue
-  cave:       '#1C1A27',  // muted purple-grey
-  dungeon:    '#1E1823',  // dark charcoal-purple
-  ruins:      '#271E17',  // warm brownstone
-  swamp:      '#162219',  // murky dark green
-  desert:     '#2C2318',  // dark warm amber
-  tundra:     '#161F25',  // icy blue-grey
-  ocean:      '#0F2038',  // deep sea blue
-  river:      '#12253A',  // medium blue
-  lake:       '#121E32',  // calm deep blue
-  road:       '#27262D',  // neutral grey
-  building:   '#22201C',  // warm interior stone
-  custom:     '#21172A',  // distinct dark purple
+  default:   '#1E293B',
+  city:      '#1E2236',
+  forest:    '#172C1C',
+  plains:    '#1E2B13',
+  hills:     '#222819',
+  mountains: '#1A1E2E',
+  cave:      '#1C1A27',
+  dungeon:   '#1E1823',
+  ruins:     '#271E17',
+  swamp:     '#162219',
+  desert:    '#2C2318',
+  tundra:    '#161F25',
+  ocean:     '#0F2038',
+  river:     '#12253A',
+  lake:      '#121E32',
+  road:      '#27262D',
+  building:  '#22201C',
+  custom:    '#21172A',
 }
 
-/** Lighten a #rrggbb hex colour by adding `amount` to each channel. */
 function lightenHex(hex: string, amount = 14): string {
   const n = parseInt(hex.slice(1), 16)
-  const r = Math.min(255, (n >> 16)        + amount)
+  const r = Math.min(255, (n >> 16)         + amount)
   const g = Math.min(255, ((n >> 8) & 0xff) + amount)
   const b = Math.min(255, (n & 0xff)        + amount)
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
@@ -229,6 +220,18 @@ function drawDownMarker(ctx: CanvasRenderingContext2D, rx: number, ry: number, c
   ctx.fill()
 }
 
+function drawBrokenMarker(ctx: CanvasRenderingContext2D, rx: number, ry: number, cell: number) {
+  // Small red ⚠ in the bottom-left corner
+  const s = cell / 80
+  const bx = rx + 6 * s
+  const by = ry + cell - 6 * s
+  ctx.fillStyle = C.brokenExit
+  ctx.font = `bold ${Math.max(8, Math.round(cell * 0.18))}px sans-serif`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'bottom'
+  ctx.fillText('⚠', bx, by)
+}
+
 // ---------------------------------------------------------------------------
 // Main draw function
 // ---------------------------------------------------------------------------
@@ -239,16 +242,18 @@ interface DrawState {
   selectedRoomIds: Set<string>
   roomsByPos: Record<string, Room>
   dragRect: { x: number; y: number; w: number; h: number } | null
+  linkMode: boolean
+  linkSourceRoomId: string | null
 }
 
 function drawAll(
   ctx: CanvasRenderingContext2D,
-  mapData: { width: number; height: number; rooms: Record<string, Room> },
+  floor: Pick<Floor, 'width' | 'height' | 'rooms'>,
   ds: DrawState,
   l: GridLayout,
 ) {
-  const { width, height } = mapData
-  const { hover, selectedRoomId, selectedRoomIds, roomsByPos } = ds
+  const { width, height } = floor
+  const { hover, selectedRoomId, selectedRoomIds, roomsByPos, linkMode, linkSourceRoomId } = ds
   const cw = totalW(width,  l)
   const ch = totalH(height, l)
 
@@ -262,33 +267,48 @@ function drawAll(
       const y       = cellY(gy, l)
       const isHover = hover.gx === gx && hover.gy === gy && hover.type === 'room'
 
-      // ── Room cell ────────────────────────────────────────────────
+      // ── Room cell ───────────────────────────────────────────────────────
       if (!room) {
         roundRect(ctx, x, y, l.cell, l.cell, l.r)
-        ctx.fillStyle   = isHover ? C.emptyHoverFill   : C.emptyFill
+        ctx.fillStyle   = linkMode
+          ? C.linkModeFill
+          : isHover ? C.emptyHoverFill : C.emptyFill
         ctx.fill()
         ctx.strokeStyle = isHover ? C.emptyHoverBorder : C.emptyBorder
         ctx.lineWidth   = 1
         ctx.stroke()
       } else {
-        const isSel    = room.id === selectedRoomId
-        const isMulti  = selectedRoomIds.has(room.id)
+        const isSel     = room.id === selectedRoomId
+        const isMulti   = selectedRoomIds.has(room.id)
+        const isSource  = linkMode && room.id === linkSourceRoomId
+        const hasBroken = room.exits.some((e) => e.broken)
+        const hasUp     = room.exits.some((e) => e.direction === 'up'   && !e.broken)
+        const hasDown   = room.exits.some((e) => e.direction === 'down' && !e.broken)
+
         roundRect(ctx, x, y, l.cell, l.cell, l.r)
 
         const terrainFill = TERRAIN_FILL[room.terrain_type] ?? TERRAIN_FILL.default
         let fill: string = terrainFill
-        if (room.safe_room && !isSel && !isMulti) fill = C.safeRoomFill
-        if (isHover && !isSel && !isMulti) fill = lightenHex(room.safe_room ? C.safeRoomFill : terrainFill)
-        if (isMulti && !isSel)             fill = C.multiSelectedFill
-        if (isSel)                         fill = C.roomSelectedFill
+        if (room.safe_room && !isSel && !isMulti && !isSource) fill = C.safeRoomFill
+        if (isHover && !isSel && !isMulti && !isSource)
+          fill = lightenHex(room.safe_room ? C.safeRoomFill : terrainFill)
+        if (isMulti && !isSel && !isSource) fill = C.multiSelectedFill
+        if (isSel && !isSource)             fill = C.roomSelectedFill
+        if (isSource)                       fill = C.linkSourceFill
+        if (linkMode && !isSource && !isSel && !isMulti)
+          fill = lightenHex(fill, -6)  // dim non-source rooms in link mode
         ctx.fillStyle = fill
         ctx.fill()
 
-        ctx.strokeStyle = isSel ? C.roomSelectedBorder : isMulti ? C.multiSelectedBorder : C.roomBorder
-        ctx.lineWidth   = isSel || isMulti ? 2 : 1
+        ctx.strokeStyle = isSource
+          ? C.linkSourceBorder
+          : isSel   ? C.roomSelectedBorder
+          : isMulti ? C.multiSelectedBorder
+          : C.roomBorder
+        ctx.lineWidth = isSource || isSel || isMulti ? 2 : 1
         ctx.stroke()
 
-        // Labels — only when cell is large enough to read
+        // Labels
         if (l.cell >= 32) {
           ctx.textAlign    = 'center'
           ctx.textBaseline = 'middle'
@@ -314,24 +334,29 @@ function drawAll(
           }
         }
 
-        // Vertical exit markers (scaled; hidden below ~20px)
+        // Vertical exit markers
         if (l.cell >= 20) {
-          if (room.has_up)   drawUpMarker(ctx, x, y, l.cell)
-          if (room.has_down) drawDownMarker(ctx, x, y, l.cell)
+          if (hasUp)   drawUpMarker(ctx, x, y, l.cell)
+          if (hasDown) drawDownMarker(ctx, x, y, l.cell)
+        }
+
+        // Broken exit warning
+        if (hasBroken && l.cell >= 20) {
+          drawBrokenMarker(ctx, x, y, l.cell)
         }
       }
 
-      // ── East connector ────────────────────────────────────────────
+      // ── East connector ──────────────────────────────────────────────────
       if (gx < width - 1) {
         const roomR = roomsByPos[`${gx + 1},${gy}`]
         if (room && roomR) {
           const isConnHover =
             hover.type === 'conn-e' && hover.gx === gx && hover.gy === gy
           const exitAB = room.exits.find(
-            (e) => e.direction === 'e' && e.target_room_id === roomR.id,
+            (e) => e.direction === 'e' && e.target_room_id === roomR.id && !e.broken,
           )
           const exitBA = roomR.exits.find(
-            (e) => e.direction === 'w' && e.target_room_id === room.id,
+            (e) => e.direction === 'w' && e.target_room_id === room.id && !e.broken,
           )
           const hasExit = !!exitAB
           const connX   = x + l.cell
@@ -348,21 +373,21 @@ function drawAll(
             if (isOneway && exitAB?.one_way && !exitBA) {
               ctx.fillStyle = C.exitArrow
               ctx.beginPath()
-              ctx.moveTo(connX + l.gap - 4,  midY)
-              ctx.lineTo(connX + l.gap - 9,  midY - 3)
-              ctx.lineTo(connX + l.gap - 9,  midY + 3)
+              ctx.moveTo(connX + l.gap - 4, midY)
+              ctx.lineTo(connX + l.gap - 9, midY - 3)
+              ctx.lineTo(connX + l.gap - 9, midY + 3)
               ctx.closePath()
               ctx.fill()
             } else if (isOneway && exitBA?.one_way && !exitAB) {
               ctx.fillStyle = C.exitArrow
               ctx.beginPath()
-              ctx.moveTo(connX + 4,  midY)
-              ctx.lineTo(connX + 9,  midY - 3)
-              ctx.lineTo(connX + 9,  midY + 3)
+              ctx.moveTo(connX + 4, midY)
+              ctx.lineTo(connX + 9, midY - 3)
+              ctx.lineTo(connX + 9, midY + 3)
               ctx.closePath()
               ctx.fill()
             }
-          } else if (isConnHover) {
+          } else if (isConnHover && !linkMode) {
             ctx.fillStyle = C.connectorHover
             const hw = Math.max(2, Math.round(l.gap * 0.25))
             ctx.fillRect(connX + hw, midY - 2, l.gap - hw * 2, 4)
@@ -374,17 +399,17 @@ function drawAll(
         }
       }
 
-      // ── South connector ───────────────────────────────────────────
+      // ── South connector ─────────────────────────────────────────────────
       if (gy < height - 1) {
         const roomB = roomsByPos[`${gx},${gy + 1}`]
         if (room && roomB) {
           const isConnHover =
             hover.type === 'conn-s' && hover.gx === gx && hover.gy === gy
           const exitAB = room.exits.find(
-            (e) => e.direction === 's' && e.target_room_id === roomB.id,
+            (e) => e.direction === 's' && e.target_room_id === roomB.id && !e.broken,
           )
           const exitBA = roomB.exits.find(
-            (e) => e.direction === 'n' && e.target_room_id === room.id,
+            (e) => e.direction === 'n' && e.target_room_id === room.id && !e.broken,
           )
           const hasExit = !!exitAB
           const connY   = y + l.cell
@@ -415,7 +440,7 @@ function drawAll(
               ctx.closePath()
               ctx.fill()
             }
-          } else if (isConnHover) {
+          } else if (isConnHover && !linkMode) {
             ctx.fillStyle = C.connectorHover
             const hh = Math.max(2, Math.round(l.gap * 0.25))
             ctx.fillRect(midX - 2, connY + hh, 4, l.gap - hh * 2)
@@ -453,23 +478,22 @@ interface MapCanvasProps {
 }
 
 export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
-  const canvasRef    = useRef<HTMLCanvasElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const hoverRef     = useRef<HitResult>(NO_HIT)
-  const dragStartRef = useRef<{ px: number; py: number } | null>(null)
+  const canvasRef     = useRef<HTMLCanvasElement>(null)
+  const containerRef  = useRef<HTMLDivElement>(null)
+  const hoverRef      = useRef<HitResult>(NO_HIT)
+  const dragStartRef  = useRef<{ px: number; py: number } | null>(null)
   const isDraggingRef = useRef(false)
-  const dragRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
+  const dragRectRef   = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
   const DRAG_THRESHOLD = 5
 
-  // Container dimensions tracked via ResizeObserver
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 })
-
-  // Zoom: 1.0 = fit-to-screen (default), <1 = smaller, >1 = larger + scroll
-  const [zoom, setZoom]   = useState(1.0)
-  const zoomRef           = useRef(1.0)   // always in sync; readable inside callbacks
+  const [zoom, setZoom] = useState(1.0)
+  const zoomRef         = useRef(1.0)
 
   const {
     mapData,
+    activeFloorId,
+    getActiveFloor,
     selectedRoomId,
     selectedRoomIds: selectedRoomIdsArr,
     setSelectedRoomIds,
@@ -480,14 +504,20 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     deleteRoom,
     deleteRooms,
     toggleGridExit,
-    toggleVerticalExit,
     openRoomDataPanel,
     openExitOptionsPanel,
+    openFloorExitWizard,
+    linkMode,
+    linkSourceRoomId,
+    setLinkSource,
+    openPortalPicker,
+    exitLinkMode,
   } = useMapStore()
 
+  const activeFloor = getActiveFloor()
   const selectedRoomIdsSet = useMemo(() => new Set(selectedRoomIdsArr), [selectedRoomIdsArr])
 
-  // Observe container size changes and update state
+  // Observe container size
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -499,60 +529,65 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     return () => ro.disconnect()
   }, [])
 
-  // Derive grid layout: fit-to-container base, then scale by zoom
+  // Derive layout from active floor dimensions
   const layout = useMemo(() => {
     const base = computeLayout(
       containerSize.w, containerSize.h,
-      mapData?.width ?? 10, mapData?.height ?? 10,
+      activeFloor?.width ?? 10, activeFloor?.height ?? 10,
     )
     const zoomedCell = Math.min(200, Math.max(4, Math.floor(base.cell * zoom)))
     const gap = Math.max(4, Math.floor(zoomedCell * GAP_RATIO))
     const r   = Math.max(2, Math.floor(zoomedCell * 0.06))
     return { cell: zoomedCell, gap, pad: FIXED_PAD, r }
-  }, [containerSize.w, containerSize.h, mapData?.width, mapData?.height, zoom])
+  }, [containerSize.w, containerSize.h, activeFloor?.width, activeFloor?.height, zoom])
 
-  // Build position index (x,y → Room) for fast rendering lookup
+  // Build position index for the active floor
   const buildRoomsByPos = useCallback((): Record<string, Room> => {
-    if (!mapData) return {}
+    if (!activeFloor) return {}
     const byPos: Record<string, Room> = {}
-    for (const room of Object.values(mapData.rooms)) {
+    for (const room of Object.values(activeFloor.rooms)) {
       byPos[`${room.x},${room.y}`] = room
     }
     return byPos
-  }, [mapData])
+  }, [activeFloor])
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current
-    if (!canvas || !mapData) return
+    if (!canvas || !activeFloor) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    drawAll(ctx, mapData, {
+    drawAll(ctx, activeFloor, {
       hover: hoverRef.current,
       selectedRoomId,
       selectedRoomIds: selectedRoomIdsSet,
       roomsByPos: buildRoomsByPos(),
       dragRect: dragRectRef.current,
+      linkMode,
+      linkSourceRoomId,
     }, layout)
-  }, [mapData, selectedRoomId, selectedRoomIdsSet, buildRoomsByPos, layout])
+  }, [activeFloor, selectedRoomId, selectedRoomIdsSet, buildRoomsByPos, layout, linkMode, linkSourceRoomId])
 
-  // Redraw whenever map data, selection, or layout changes
   useEffect(() => { redraw() }, [redraw])
 
-  // Delete / Backspace key removes the selected room; Ctrl+A selects all; Escape clears multi-select
+  // Keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement).tagName
       const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
 
       if (e.key === 'Escape') {
-        clearMultiSelect()
+        if (linkMode) {
+          exitLinkMode()
+        } else {
+          clearMultiSelect()
+        }
         return
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
         if (inInput) return
         e.preventDefault()
-        if (!mapData) return
-        setSelectedRoomIds(Object.keys(mapData.rooms))
+        if (!activeFloor) return
+        setSelectedRoomIds(Object.keys(activeFloor.rooms))
         return
       }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
@@ -565,43 +600,39 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedRoomId, selectedRoomIdsArr, mapData, deleteRoom, deleteRooms, setSelectedRoomIds, clearMultiSelect])
+  }, [
+    selectedRoomId, selectedRoomIdsArr, activeFloor, deleteRoom, deleteRooms,
+    setSelectedRoomIds, clearMultiSelect, linkMode, exitLinkMode,
+  ])
 
-  // Mouse-wheel zoom — centres on cursor position
+  // Mouse-wheel zoom
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
     function onWheel(e: WheelEvent) {
       e.preventDefault()
-      const canvas    = canvasRef.current
+      const canvas = canvasRef.current
       if (!canvas || !container) return
-
-      const factor    = e.deltaY < 0 ? (1 + ZOOM_STEP) : 1 / (1 + ZOOM_STEP)
-      const newZoom   = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomRef.current * factor))
+      const factor       = e.deltaY < 0 ? (1 + ZOOM_STEP) : 1 / (1 + ZOOM_STEP)
+      const newZoom      = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomRef.current * factor))
       const actualFactor = newZoom / zoomRef.current
-      zoomRef.current = newZoom
+      zoomRef.current    = newZoom
       setZoom(newZoom)
-
-      // After React re-renders with new canvas size, adjust scroll so the
-      // canvas pixel under the cursor stays at the same screen position.
       const canvasRect    = canvas.getBoundingClientRect()
       const containerRect = container.getBoundingClientRect()
       const cursorCanvasX = e.clientX - canvasRect.left
       const cursorCanvasY = e.clientY - canvasRect.top
       const cursorViewX   = e.clientX - containerRect.left
       const cursorViewY   = e.clientY - containerRect.top
-      const c: HTMLDivElement = container  // captured non-null reference
-
+      const c: HTMLDivElement = container
       requestAnimationFrame(() => {
         const newCw  = canvas.width
         const newCh  = canvas.height
         const innerW = Math.max(c.clientWidth,  newCw)
         const innerH = Math.max(c.clientHeight, newCh)
-        const canvasLeft = (innerW - newCw) / 2
-        const canvasTop  = (innerH - newCh) / 2
-        c.scrollLeft = canvasLeft + cursorCanvasX * actualFactor - cursorViewX
-        c.scrollTop  = canvasTop  + cursorCanvasY * actualFactor - cursorViewY
+        c.scrollLeft = (innerW - newCw) / 2 + cursorCanvasX * actualFactor - cursorViewX
+        c.scrollTop  = (innerH - newCh) / 2 + cursorCanvasY * actualFactor - cursorViewY
       })
     }
 
@@ -609,10 +640,7 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     return () => container.removeEventListener('wheel', onWheel)
   }, [])
 
-  function resetZoom() {
-    zoomRef.current = 1.0
-    setZoom(1.0)
-  }
+  function resetZoom() { zoomRef.current = 1.0; setZoom(1.0) }
 
   // ---------------------------------------------------------------------------
   // Event helpers
@@ -625,10 +653,9 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!mapData) return
+      if (!activeFloor) return
       const { px, py } = getCanvasPos(e)
 
-      // Rubber-band drag detection
       if (dragStartRef.current) {
         const dx = px - dragStartRef.current.px
         const dy = py - dragStartRef.current.py
@@ -636,26 +663,21 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
           isDraggingRef.current = true
         }
         if (isDraggingRef.current) {
-          dragRectRef.current = {
-            x: dragStartRef.current.px,
-            y: dragStartRef.current.py,
-            w: dx,
-            h: dy,
-          }
+          dragRectRef.current = { x: dragStartRef.current.px, y: dragStartRef.current.py, w: dx, h: dy }
           hoverRef.current = NO_HIT
           redraw()
           return
         }
       }
 
-      const hit  = hitTest(px, py, mapData.width, mapData.height, layout)
+      const hit  = hitTest(px, py, activeFloor.width, activeFloor.height, layout)
       const prev = hoverRef.current
       if (hit.type !== prev.type || hit.gx !== prev.gx || hit.gy !== prev.gy) {
         hoverRef.current = hit
         redraw()
       }
     },
-    [mapData, layout, redraw],
+    [activeFloor, layout, redraw],
   )
 
   const handleMouseLeave = useCallback(() => {
@@ -679,19 +701,19 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
 
   const handleMouseUp = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!mapData) return
+      if (!activeFloor || !activeFloorId) return
       const { px, py } = getCanvasPos(e)
 
-      // ── Finish rubber-band drag ──────────────────────────────────────
+      // ── Finish rubber-band drag ─────────────────────────────────────────
       if (isDraggingRef.current) {
         const rect = dragRectRef.current
-        if (rect) {
+        if (rect && !linkMode) {
           const x0 = Math.min(rect.x, rect.x + rect.w)
           const y0 = Math.min(rect.y, rect.y + rect.h)
           const x1 = Math.max(rect.x, rect.x + rect.w)
           const y1 = Math.max(rect.y, rect.y + rect.h)
           const ids: string[] = []
-          for (const room of Object.values(mapData.rooms)) {
+          for (const room of Object.values(activeFloor.rooms)) {
             const rx = cellX(room.x, layout)
             const ry = cellY(room.y, layout)
             if (rx < x1 && rx + layout.cell > x0 && ry < y1 && ry + layout.cell > y0) {
@@ -711,8 +733,26 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
       if (e.button !== 0) return
       e.preventDefault()
 
-      const hit = hitTest(px, py, mapData.width, mapData.height, layout)
+      const hit = hitTest(px, py, activeFloor.width, activeFloor.height, layout)
 
+      // ── Link mode ───────────────────────────────────────────────────────
+      if (linkMode) {
+        if (hit.type === 'room') {
+          const room = getRoomAt(hit.gx, hit.gy)
+          if (room) {
+            if (!linkSourceRoomId) {
+              setLinkSource(room.id, activeFloorId)
+            } else {
+              openPortalPicker(room.id, activeFloorId)
+            }
+          }
+        } else {
+          exitLinkMode()
+        }
+        return
+      }
+
+      // ── Normal mode ─────────────────────────────────────────────────────
       if (hit.type === 'room') {
         const { gx, gy } = hit
         const room = getRoomAt(gx, gy)
@@ -723,16 +763,17 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
           openRoomDataPanel(newRoom.id)
           onRoomCreated?.(newRoom.id)
         } else if (e.shiftKey) {
-          // Shift+click: toggle room in/out of multi-selection
-          const next = selectedRoomIdsArr.includes(room.id)
-            ? selectedRoomIdsArr.filter((id) => id !== room.id)
-            : [...selectedRoomIdsArr, room.id]
-          setSelectedRoomIds(next)
+          // Shift+click: open Floor Exit Wizard for up/down link
+          openFloorExitWizard(room.id)
         } else if (e.altKey) {
           clearMultiSelect()
           openExitOptionsPanel(room.id)
         } else if (e.ctrlKey || e.metaKey) {
-          toggleVerticalExit(room.id, 'down')
+          // Ctrl+click: toggle room in/out of multi-selection
+          const next = selectedRoomIdsArr.includes(room.id)
+            ? selectedRoomIdsArr.filter((id) => id !== room.id)
+            : [...selectedRoomIdsArr, room.id]
+          setSelectedRoomIds(next)
         } else {
           clearMultiSelect()
           selectRoom(room.id === selectedRoomId ? null : room.id)
@@ -746,39 +787,41 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
         const roomB = getRoomAt(bx, by)
         if (roomA && roomB) toggleGridExit(gx, gy, bx, by, dir)
       } else {
-        // Clicked empty space outside grid — clear selections
         clearMultiSelect()
         selectRoom(null)
       }
     },
     [
-      mapData, layout, selectedRoomId, selectedRoomIdsArr,
-      getRoomAt, createRoom, selectRoom,
-      toggleGridExit, toggleVerticalExit,
-      openRoomDataPanel, openExitOptionsPanel, onRoomCreated,
-      setSelectedRoomIds, clearMultiSelect, redraw,
+      activeFloor, activeFloorId, layout, selectedRoomId, selectedRoomIdsArr,
+      linkMode, linkSourceRoomId,
+      getRoomAt, createRoom, selectRoom, deleteRoom, deleteRooms,
+      toggleGridExit,
+      openRoomDataPanel, openExitOptionsPanel, openFloorExitWizard,
+      setLinkSource, openPortalPicker, exitLinkMode,
+      onRoomCreated, setSelectedRoomIds, clearMultiSelect, redraw,
     ],
   )
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!mapData) return
+      if (!activeFloor) return
       e.preventDefault()
+      if (linkMode) { exitLinkMode(); return }
       const { px, py } = getCanvasPos(e)
-      const hit = hitTest(px, py, mapData.width, mapData.height, layout)
+      const hit = hitTest(px, py, activeFloor.width, activeFloor.height, layout)
       if (hit.type === 'room') {
         const room = getRoomAt(hit.gx, hit.gy)
         if (room) openRoomDataPanel(room.id)
       }
     },
-    [mapData, layout, getRoomAt, openRoomDataPanel],
+    [activeFloor, layout, getRoomAt, openRoomDataPanel, linkMode, exitLinkMode],
   )
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
-  if (!mapData) {
+  if (!mapData || !activeFloor) {
     return (
       <div className="flex items-center justify-center flex-1 text-muted text-sm select-none">
         No map loaded — create a new map to begin.
@@ -786,19 +829,26 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     )
   }
 
-  const cw = totalW(mapData.width,  layout)
-  const ch = totalH(mapData.height, layout)
-
+  const cw = totalW(activeFloor.width,  layout)
+  const ch = totalH(activeFloor.height, layout)
   const zoomPct = Math.round(zoom * 100)
 
   return (
     <div className="flex-1 overflow-hidden relative">
+      {/* Link mode banner */}
+      {linkMode && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="flex items-center gap-2 bg-purple-950/95 border border-purple-600 rounded-full px-4 py-1.5 shadow-lg text-xs text-purple-200 backdrop-blur-sm">
+            <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+            {linkSourceRoomId
+              ? 'Click target room to create exit — or right-click to cancel'
+              : 'Click source room to begin linking'}
+          </div>
+        </div>
+      )}
+
       {/* Scrollable canvas viewport */}
-      <div
-        ref={containerRef}
-        className="absolute inset-0 overflow-auto"
-      >
-        {/* Inner wrapper: always fills container; centres canvas when it fits */}
+      <div ref={containerRef} className="absolute inset-0 overflow-auto">
         <div
           style={{
             minWidth:  containerSize.w,
@@ -817,13 +867,13 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
             onMouseLeave={handleMouseLeave}
             onMouseUp={handleMouseUp}
             onContextMenu={handleContextMenu}
-            className="block cursor-crosshair"
+            className={`block ${linkMode ? 'cursor-cell' : 'cursor-crosshair'}`}
             aria-label="Map editor grid"
           />
         </div>
       </div>
 
-      {/* Zoom indicator — bottom-right corner */}
+      {/* Zoom indicator */}
       {zoom !== 1.0 && (
         <div className="absolute bottom-3 right-3 flex items-center gap-1.5 z-10 pointer-events-none">
           <div className="flex items-center gap-2 bg-surface/90 border border-border rounded-md px-2.5 py-1 shadow-lg text-xs text-muted backdrop-blur-sm pointer-events-auto">

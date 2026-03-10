@@ -4,66 +4,60 @@
  * Opens via Alt+click on an active room.
  *
  * Shows:
- *   - Current exits (direction, target room name, one-way status)
+ *   - All exits (direction, target room name, floor, one-way status, broken state)
  *   - Controls: toggle one-way, remove
- *   - Available directions for adjacent active rooms (quick-create)
+ *   - Available adjacent rooms with no exit yet (quick-create)
+ *   - "Link Mode" button for creating non-adjacent exits
  */
-import { X, ArrowRight, ArrowLeft, ArrowRightLeft, Trash2 } from 'lucide-react'
+import { X, ArrowRight, ArrowRightLeft, Trash2, Link, AlertTriangle } from 'lucide-react'
 import { useMapStore } from '../store/mapStore'
 import type { Direction } from '../types/map'
-import {
-  DIRECTION_LABELS,
-  OPPOSITE_DIR,
-  CARDINAL_DIRECTIONS,
-  DIR_OFFSET,
-} from '../types/map'
+import { DIRECTION_LABELS, OPPOSITE_DIR, CARDINAL_DIRECTIONS, DIR_OFFSET } from '../types/map'
 
-// Direction badge colors
 const DIR_COLOR: Record<string, string> = {
-  n: 'bg-blue-900 text-blue-200',
-  ne: 'bg-indigo-900 text-indigo-200',
-  e: 'bg-teal-900 text-teal-200',
-  se: 'bg-cyan-900 text-cyan-200',
-  s: 'bg-violet-900 text-violet-200',
-  sw: 'bg-purple-900 text-purple-200',
-  w: 'bg-pink-900 text-pink-200',
-  nw: 'bg-rose-900 text-rose-200',
-  up: 'bg-blue-800 text-blue-100',
+  n:    'bg-blue-900 text-blue-200',
+  e:    'bg-teal-900 text-teal-200',
+  s:    'bg-violet-900 text-violet-200',
+  w:    'bg-pink-900 text-pink-200',
+  up:   'bg-blue-800 text-blue-100',
   down: 'bg-orange-900 text-orange-200',
 }
 
 export function ExitOptionsPanel() {
   const {
     mapData,
+    activeFloorId,
     exitOptionsPanelRoomId,
     updateExit,
     removeExit,
     toggleGridExit,
     closeExitOptionsPanel,
+    getActiveFloor,
   } = useMapStore()
 
-  if (!exitOptionsPanelRoomId || !mapData) return null
-  const room = mapData.rooms[exitOptionsPanelRoomId]
+  if (!exitOptionsPanelRoomId || !mapData || !activeFloorId) return null
+  const activeFloor = getActiveFloor()
+  if (!activeFloor) return null
+
+  const room = activeFloor.rooms[exitOptionsPanelRoomId]
   if (!room) return null
 
-  // Build a position → room lookup
+  // Build position → room lookup for the active floor
   const byPos: Record<string, string> = {}
-  for (const r of Object.values(mapData.rooms)) {
+  for (const r of Object.values(activeFloor.rooms)) {
     byPos[`${r.x},${r.y}`] = r.id
   }
 
-  // Determine which cardinal directions connect to active adjacent rooms
-  // but don't yet have an exit
+  // Cardinal directions that connect to an adjacent room but have no exit yet
   const connectableDirections: Direction[] = CARDINAL_DIRECTIONS.filter((dir) => {
     const offset = DIR_OFFSET[dir]
     if (!offset) return false
     const nx = room.x + offset[0]
     const ny = room.y + offset[1]
-    if (nx < 0 || ny < 0 || nx >= mapData.width || ny >= mapData.height) return false
+    if (nx < 0 || ny < 0 || nx >= activeFloor.width || ny >= activeFloor.height) return false
     const neighborId = byPos[`${nx},${ny}`]
-    if (!neighborId) return false // no room there
-    const alreadyConnected = room.exits.some((e) => e.direction === dir)
-    return !alreadyConnected
+    if (!neighborId) return false
+    return !room.exits.some((e) => e.direction === dir)
   })
 
   function handleAddExit(dir: Direction) {
@@ -76,16 +70,24 @@ export function ExitOptionsPanel() {
 
   function handleToggleOneWay(dir: Direction) {
     const exit = room.exits.find((e) => e.direction === dir)
-    if (!exit) return
+    if (!exit || exit.broken) return
     const newOneWay = !exit.one_way
     updateExit(room.id, dir, { one_way: newOneWay })
-    // Also update the reverse exit in the target room if making two-way again
-    if (!newOneWay && mapData) {
-      const target = mapData.rooms[exit.target_room_id]
-      if (target) {
-        updateExit(target.id, OPPOSITE_DIR[dir], { one_way: false })
+    // If making two-way again, clear one_way on the reverse exit too
+    if (!newOneWay) {
+      const tgtFloor = mapData!.floors.find((f) => f.id === exit.target_floor_id)
+      const tgtRoom  = tgtFloor?.rooms[exit.target_room_id]
+      if (tgtRoom) {
+        useMapStore.getState().updateExit(tgtRoom.id, OPPOSITE_DIR[dir], { one_way: false })
       }
     }
+  }
+
+  function handleEnterLinkMode() {
+    closeExitOptionsPanel()
+    const store = useMapStore.getState()
+    store.enterLinkMode()
+    store.setLinkSource(room.id, activeFloorId!)
   }
 
   return (
@@ -109,7 +111,6 @@ export function ExitOptionsPanel() {
 
       <div className="flex-1 overflow-y-auto px-4 pb-6">
 
-        {/* Room title reminder */}
         <div className="mt-3 mb-4 text-xs text-muted">
           <span className="text-text font-medium">{room.title}</span>{' '}
           at ({room.x}, {room.y})
@@ -120,56 +121,26 @@ export function ExitOptionsPanel() {
           Current Exits
         </div>
 
-        {/* Vertical exits (up/down) */}
-        {room.has_up && (
-          <div className="flex items-center gap-2 mb-2 p-2 rounded bg-canvas border border-border">
-            <span className={`text-xs px-1.5 py-0.5 rounded font-mono font-bold ${DIR_COLOR['up']}`}>
-              UP
-            </span>
-            <span className="text-xs text-muted flex-1">vertical exit ↑</span>
-            <button
-              onClick={() => useMapStore.getState().toggleVerticalExit(room.id, 'up')}
-              className="text-red-400 hover:text-red-300 cursor-pointer transition-colors"
-              title="Remove up exit"
-            >
-              <Trash2 size={13} />
-            </button>
-          </div>
-        )}
-        {room.has_down && (
-          <div className="flex items-center gap-2 mb-2 p-2 rounded bg-canvas border border-border">
-            <span className={`text-xs px-1.5 py-0.5 rounded font-mono font-bold ${DIR_COLOR['down']}`}>
-              DN
-            </span>
-            <span className="text-xs text-muted flex-1">vertical exit ↓</span>
-            <button
-              onClick={() => useMapStore.getState().toggleVerticalExit(room.id, 'down')}
-              className="text-red-400 hover:text-red-300 cursor-pointer transition-colors"
-              title="Remove down exit"
-            >
-              <Trash2 size={13} />
-            </button>
-          </div>
-        )}
-
-        {/* Grid exits */}
-        {room.exits.length === 0 && !room.has_up && !room.has_down && (
+        {room.exits.length === 0 && (
           <div className="text-xs text-muted italic mb-3">No exits defined.</div>
         )}
 
         {room.exits.map((exit) => {
-          const target = mapData.rooms[exit.target_room_id]
-          const targetName = target?.title ?? `#${exit.target_room_id}`
-          const reverseExit = target?.exits.find(
+          const tgtFloor    = mapData.floors.find((f) => f.id === exit.target_floor_id)
+          const tgtRoom     = tgtFloor?.rooms[exit.target_room_id]
+          const targetName  = tgtRoom?.title ?? `#${exit.target_room_id}`
+          const isCrossFloor = exit.target_floor_id !== activeFloorId
+          const reverseExit = tgtRoom?.exits.find(
             (e) => e.direction === OPPOSITE_DIR[exit.direction],
           )
-          // Is the connection truly one-way (only one side exists)?
           const truelyOneWay = exit.one_way || !reverseExit
 
           return (
             <div
               key={exit.direction}
-              className="flex items-start gap-2 mb-2 p-2 rounded bg-canvas border border-border"
+              className={`flex items-start gap-2 mb-2 p-2 rounded border ${
+                exit.broken ? 'border-red-900 bg-red-950/30' : 'border-border bg-canvas'
+              }`}
             >
               <span
                 className={`text-xs px-1.5 py-0.5 rounded font-mono font-bold shrink-0 mt-0.5 ${
@@ -180,33 +151,42 @@ export function ExitOptionsPanel() {
               </span>
 
               <div className="flex-1 min-w-0">
-                <div className="text-xs text-text truncate">{targetName}</div>
-                <div className="text-xs text-muted">
-                  {DIRECTION_LABELS[exit.direction]}
-                  {' · '}
-                  {truelyOneWay ? (
-                    <span className="text-yellow-400">one-way</span>
-                  ) : (
-                    <span className="text-accent">two-way</span>
+                {exit.broken ? (
+                  <div className="flex items-center gap-1 text-red-400">
+                    <AlertTriangle size={11} />
+                    <span className="text-xs">Broken — target deleted</span>
+                  </div>
+                ) : (
+                  <div className="text-xs text-text truncate">{targetName}</div>
+                )}
+                <div className="text-xs text-muted space-x-1">
+                  <span>{DIRECTION_LABELS[exit.direction]}</span>
+                  {isCrossFloor && tgtFloor && (
+                    <span className="text-purple-400">→ {tgtFloor.name}</span>
+                  )}
+                  {!exit.broken && (
+                    <>
+                      <span>·</span>
+                      {truelyOneWay ? (
+                        <span className="text-yellow-400">one-way</span>
+                      ) : (
+                        <span className="text-accent">two-way</span>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
 
               <div className="flex items-center gap-1 shrink-0">
-                {/* Toggle one-way / two-way */}
-                <button
-                  onClick={() => handleToggleOneWay(exit.direction)}
-                  title={truelyOneWay ? 'Make two-way' : 'Make one-way'}
-                  className="text-muted hover:text-accent cursor-pointer transition-colors"
-                >
-                  {truelyOneWay ? (
-                    <ArrowRight size={13} />
-                  ) : (
-                    <ArrowRightLeft size={13} />
-                  )}
-                </button>
-
-                {/* Remove exit */}
+                {!exit.broken && (
+                  <button
+                    onClick={() => handleToggleOneWay(exit.direction)}
+                    title={truelyOneWay ? 'Make two-way' : 'Make one-way'}
+                    className="text-muted hover:text-accent cursor-pointer transition-colors"
+                  >
+                    {truelyOneWay ? <ArrowRight size={13} /> : <ArrowRightLeft size={13} />}
+                  </button>
+                )}
                 <button
                   onClick={() => removeExit(room.id, exit.direction)}
                   title="Remove exit"
@@ -219,49 +199,56 @@ export function ExitOptionsPanel() {
           )
         })}
 
-        {/* ── Available Connections ──────────────────────────── */}
+        {/* ── Add Adjacent Exit ──────────────────────────────── */}
         {connectableDirections.length > 0 && (
           <>
             <div className="text-xs font-heading font-semibold text-accent uppercase tracking-wider mt-4 mb-2">
               Add Exit
             </div>
-            <div className="text-xs text-muted mb-2">
-              Adjacent active rooms with no exit:
-            </div>
+            <div className="text-xs text-muted mb-2">Adjacent rooms with no exit:</div>
             {connectableDirections.map((dir) => {
-              const offset = DIR_OFFSET[dir]!
-              const nx = room.x + offset[0]
-              const ny = room.y + offset[1]
+              const offset     = DIR_OFFSET[dir]!
+              const nx         = room.x + offset[0]
+              const ny         = room.y + offset[1]
               const neighborId = byPos[`${nx},${ny}`]
-              const neighbor = neighborId ? mapData.rooms[neighborId] : undefined
+              const neighbor   = neighborId ? activeFloor.rooms[neighborId] : undefined
               return (
                 <button
                   key={dir}
                   onClick={() => handleAddExit(dir)}
                   className="flex items-center gap-2 w-full text-left p-2 rounded border border-border hover:border-accent hover:bg-surface2 transition-colors cursor-pointer mb-1"
                 >
-                  <span
-                    className={`text-xs px-1.5 py-0.5 rounded font-mono font-bold shrink-0 ${
-                      DIR_COLOR[dir] ?? 'bg-slate-700 text-slate-200'
-                    }`}
-                  >
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-mono font-bold shrink-0 ${DIR_COLOR[dir] ?? 'bg-slate-700 text-slate-200'}`}>
                     {dir.toUpperCase()}
                   </span>
                   <span className="text-xs text-text truncate">
                     {DIRECTION_LABELS[dir]} → {neighbor?.title ?? '?'}
                   </span>
-                  <ArrowLeft size={12} className="text-muted ml-auto shrink-0 rotate-180" />
                 </button>
               )
             })}
           </>
         )}
 
+        {/* ── Link Mode ──────────────────────────────────────── */}
+        <div className="mt-4">
+          <div className="text-xs font-heading font-semibold text-accent uppercase tracking-wider mb-2">
+            Non-Adjacent Exit
+          </div>
+          <button
+            onClick={handleEnterLinkMode}
+            className="flex items-center gap-2 w-full text-left p-2 rounded border border-border hover:border-purple-600 hover:bg-purple-950/30 transition-colors cursor-pointer text-xs text-muted hover:text-purple-300"
+          >
+            <Link size={13} className="text-purple-400" />
+            Link to any room (portal / cross-floor)
+          </button>
+        </div>
+
         {/* ── Keyboard hints ─────────────────────────────────── */}
         <div className="mt-6 pt-3 border-t border-border text-xs text-muted space-y-1">
-          <div><kbd className="bg-canvas px-1 rounded">Shift+click</kbd> — toggle UP exit</div>
-          <div><kbd className="bg-canvas px-1 rounded">Ctrl+click</kbd> — toggle DOWN exit</div>
-          <div><kbd className="bg-canvas px-1 rounded">Click border</kbd> — toggle N/S/E/W exit</div>
+          <div><kbd className="bg-canvas px-1 rounded">Shift+click</kbd> — floor up/down exit wizard</div>
+          <div><kbd className="bg-canvas px-1 rounded">Ctrl+click</kbd> — multi-select room</div>
+          <div><kbd className="bg-canvas px-1 rounded">Click connector</kbd> — toggle N/S/E/W exit</div>
         </div>
 
       </div>

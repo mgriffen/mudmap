@@ -91,7 +91,9 @@ export function MapListDialog() {
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-text font-medium truncate">{m.name}</div>
                 <div className="text-xs text-muted">
-                  {m.width}×{m.height} grid · {m.room_count} room{m.room_count !== 1 ? 's' : ''}
+                  {m.floor_count} floor{m.floor_count !== 1 ? 's' : ''}
+                  {' · '}
+                  {m.room_count} room{m.room_count !== 1 ? 's' : ''}
                   {' · '}
                   {formatDate(m.updated_at)}
                 </div>

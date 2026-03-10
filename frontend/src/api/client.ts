@@ -5,6 +5,7 @@
  * In production, requests go directly to the FastAPI server.
  */
 import type { MapData, MapSummary } from '../types/map'
+import { migrateMapData } from '../types/map'
 
 const BASE = '/api'
 
@@ -22,7 +23,6 @@ async function request<T>(
     const text = await res.text().catch(() => '')
     throw new Error(`API ${method} ${path} → ${res.status}: ${text}`)
   }
-  // DELETE returns no body
   if (res.status === 204 || res.headers.get('content-length') === '0') {
     return undefined as T
   }
@@ -32,8 +32,10 @@ async function request<T>(
 export const listMaps = () =>
   request<MapSummary[]>('GET', '/maps')
 
-export const getMap = (id: string) =>
-  request<MapData>('GET', `/maps/${id}`)
+export const getMap = async (id: string): Promise<MapData> => {
+  const raw = await request<unknown>('GET', `/maps/${id}`)
+  return migrateMapData(raw)
+}
 
 export const createMap = (data: MapData) =>
   request<MapData>('POST', '/maps', data)

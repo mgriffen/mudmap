@@ -2,9 +2,6 @@
 REST API routes for map CRUD operations.
 
 Maps are stored as JSON files in the `maps/` directory under the project root.
-This keeps the storage simple and human-readable — JSON files can be inspected,
-version-controlled, or manually edited.
-
 Future Evennia export will read these same files and convert them.
 """
 from fastapi import APIRouter, HTTPException
@@ -16,7 +13,6 @@ from ..models import MapData, MapSummary
 
 router = APIRouter(prefix="/api/maps", tags=["maps"])
 
-# Maps directory is relative to where the server is started (project root).
 MAPS_DIR = Path("maps")
 
 
@@ -37,12 +33,19 @@ async def list_maps():
     for f in sorted(d.glob("*.json")):
         try:
             data = json.loads(f.read_text())
+            floors = data.get("floors", [])
+            # Support legacy single-floor format in summary
+            if not floors and data.get("rooms"):
+                room_count = len(data.get("rooms", {}))
+                floor_count = 1
+            else:
+                room_count = sum(len(fl.get("rooms", {})) for fl in floors)
+                floor_count = len(floors)
             summaries.append(MapSummary(
                 id=data["id"],
                 name=data["name"],
-                width=data["width"],
-                height=data["height"],
-                room_count=len(data.get("rooms", {})),
+                room_count=room_count,
+                floor_count=floor_count,
                 updated_at=data.get("updated_at", ""),
             ))
         except Exception:
@@ -62,7 +65,7 @@ async def create_map(data: MapData):
 
 @router.get("/{map_id}", response_model=MapData)
 async def get_map(map_id: str):
-    """Retrieve a full map by ID."""
+    """Retrieve a full map by ID (migration applied by Pydantic validator)."""
     path = _map_path(map_id)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Map not found")

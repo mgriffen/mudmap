@@ -188,11 +188,12 @@ const BIOMES = [
 // Main panel component
 // ---------------------------------------------------------------------------
 export function RoomDataPanel() {
-  const { mapData, roomDataPanelRoomId, updateRoom, deleteRoom, closeRoomDataPanel } = useMapStore()
+  const { mapData, roomDataPanelRoomId, updateRoom, deleteRoom, closeRoomDataPanel, getActiveFloor } = useMapStore()
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   if (!roomDataPanelRoomId || !mapData) return null
-  const room = mapData.rooms[roomDataPanelRoomId]
+  const activeFloor = getActiveFloor()
+  const room = activeFloor?.rooms[roomDataPanelRoomId]
   if (!room) return null
 
   // Shorthand updater

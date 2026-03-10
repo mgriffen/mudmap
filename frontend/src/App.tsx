@@ -5,16 +5,19 @@
  *   ┌──────────────────────────────────────────────────────┐
  *   │ Toolbar                                              │
  *   ├──────────────────────────────────────────────────────┤
- *   │ MapCanvas (scrollable)         │ Side Panel (opt.)  │
+ *   │ FloorSelector (when map loaded)                      │
+ *   ├──────────────────────────────────────────────────────┤
+ *   │ MapCanvas (flex-1)             │ Side Panel (opt.)  │
  *   └──────────────────────────────────────────────────────┘
  *
- * Modals (NewMapDialog, MapListDialog) are rendered at the
- * root level so they overlay everything.
+ * Modals (NewMapDialog, MapListDialog, FloorExitWizard,
+ * PortalDirectionPicker) are rendered at root level.
  */
 import { useEffect } from 'react'
 import { useMapStore } from './store/mapStore'
 import { Toolbar } from './components/Toolbar'
 import { MapCanvas } from './components/MapCanvas'
+import { FloorSelector } from './components/FloorSelector'
 import { LeftSidebar } from './components/LeftSidebar'
 import { RoomDataPanel } from './components/RoomDataPanel'
 import { ExitOptionsPanel } from './components/ExitOptionsPanel'
@@ -22,6 +25,8 @@ import { NewMapDialog } from './components/NewMapDialog'
 import { MapListDialog } from './components/MapListDialog'
 import { TevetharaPanel } from './components/TevetharaPanel'
 import { MultiSelectPanel } from './components/MultiSelectPanel'
+import { FloorExitWizard } from './components/FloorExitWizard'
+import { PortalDirectionPicker } from './components/PortalDirectionPicker'
 
 export default function App() {
   const {
@@ -30,6 +35,8 @@ export default function App() {
     selectedRoomIds,
     leftSidebarOpen,
     openNewMapDialog,
+    floorExitWizardRoomId,
+    portalPickerOpen,
   } = useMapStore()
 
   // Ctrl+S / Cmd+S to save
@@ -49,29 +56,36 @@ export default function App() {
       <Toolbar />
 
       {/* Main content area */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar */}
-        {leftSidebarOpen && <LeftSidebar />}
+      <div className="flex flex-1 overflow-hidden flex-col">
+        {/* Floor selector — shown when a map is loaded */}
+        {mapData && <FloorSelector />}
 
-        {/* Canvas area — fills remaining space; ResizeObserver handles sizing */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {mapData ? (
-            <MapCanvas />
-          ) : (
-            <EmptyState onNew={openNewMapDialog} />
-          )}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left sidebar */}
+          {leftSidebarOpen && <LeftSidebar />}
+
+          {/* Canvas area */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {mapData ? (
+              <MapCanvas />
+            ) : (
+              <EmptyState onNew={openNewMapDialog} />
+            )}
+          </div>
+
+          {/* Right panel */}
+          {selectedRoomIds.length > 1    ? <MultiSelectPanel />   :
+           roomDataPanelRoomId           ? <RoomDataPanel />       :
+           exitOptionsPanelRoomId        ? <ExitOptionsPanel />    :
+                                           <TevetharaPanel />}
         </div>
-
-        {/* Right panel — always present; shows world lore until a room is active */}
-        {selectedRoomIds.length > 1    ? <MultiSelectPanel />   :
-         roomDataPanelRoomId           ? <RoomDataPanel />       :
-         exitOptionsPanelRoomId        ? <ExitOptionsPanel />    :
-                                         <TevetharaPanel />}
       </div>
 
       {/* Modal overlays */}
       <NewMapDialog />
       <MapListDialog />
+      {floorExitWizardRoomId && <FloorExitWizard />}
+      {portalPickerOpen      && <PortalDirectionPicker />}
     </div>
   )
 }
@@ -86,9 +100,7 @@ function EmptyState({ onNew }: { onNew: () => void }) {
         mm
       </div>
       <div>
-        <h1 className="font-heading font-bold text-xl text-text mb-1">
-          mudmap
-        </h1>
+        <h1 className="font-heading font-bold text-xl text-text mb-1">mudmap</h1>
         <p className="text-sm text-muted max-w-xs">
           MUD area map builder for Tevethara. Create grid-based area maps,
           define rooms, connect exits, and export to JSON for Evennia.
@@ -101,10 +113,13 @@ function EmptyState({ onNew }: { onNew: () => void }) {
         Create New Map
       </button>
       <p className="text-xs text-muted">
-        or <button
+        or{' '}
+        <button
           onClick={() => useMapStore.getState().openMapListDialog()}
           className="text-accent hover:underline cursor-pointer bg-transparent border-none"
-        >open an existing map</button>
+        >
+          open an existing map
+        </button>
       </p>
     </div>
   )

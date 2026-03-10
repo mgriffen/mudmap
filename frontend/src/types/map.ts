@@ -3,126 +3,125 @@
  *
  * These mirror the Pydantic models in src/mudmap/models.py.
  * Keep them in sync when either side changes.
+ *
+ * Diagonal directions (NE, SE, SW, NW) are intentionally omitted.
  */
 
-export type Direction =
-  | 'n' | 'ne' | 'e' | 'se'
-  | 's' | 'sw' | 'w' | 'nw'
-  | 'up' | 'down';
+export type Direction = 'n' | 'e' | 's' | 'w' | 'up' | 'down'
 
-export const CARDINAL_DIRECTIONS: Direction[] = ['n', 'e', 's', 'w'];
-export const DIAGONAL_DIRECTIONS: Direction[] = ['ne', 'se', 'sw', 'nw'];
-export const VERTICAL_DIRECTIONS: Direction[] = ['up', 'down'];
+export const CARDINAL_DIRECTIONS: Direction[] = ['n', 'e', 's', 'w']
+export const VERTICAL_DIRECTIONS: Direction[] = ['up', 'down']
+export const ALL_DIRECTIONS: Direction[] = [...CARDINAL_DIRECTIONS, ...VERTICAL_DIRECTIONS]
 
 export const DIRECTION_LABELS: Record<Direction, string> = {
-  n: 'North',     ne: 'Northeast', e: 'East',  se: 'Southeast',
-  s: 'South',     sw: 'Southwest', w: 'West',  nw: 'Northwest',
-  up: 'Up',       down: 'Down',
-};
+  n: 'North', e: 'East', s: 'South', w: 'West',
+  up: 'Up', down: 'Down',
+}
 
 /** Maps each direction to its opposite. */
 export const OPPOSITE_DIR: Record<Direction, Direction> = {
-  n: 's',   s: 'n',
-  e: 'w',   w: 'e',
-  ne: 'sw', sw: 'ne',
-  nw: 'se', se: 'nw',
-  up: 'down', down: 'up',
-};
+  n: 's', s: 'n', e: 'w', w: 'e', up: 'down', down: 'up',
+}
 
-/** Direction offset on the grid: [dx, dy] for each cardinal direction. */
+/** Grid offset (dx, dy) for cardinal directions only. */
 export const DIR_OFFSET: Partial<Record<Direction, [number, number]>> = {
-  n:  [0, -1],
-  e:  [1,  0],
-  s:  [0,  1],
-  w:  [-1, 0],
-};
+  n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0],
+}
 
 export interface Exit {
-  direction: Direction;
-  target_room_id: string;
-  one_way: boolean;
+  direction: Direction
+  target_room_id: string
+  /** Always set — same-floor exits use that floor's own id. */
+  target_floor_id: string
+  one_way: boolean
+  /** True when the target room has been deleted. Shown as a broken-exit marker. */
+  broken?: boolean
 }
 
 export interface Room {
-  id: string;
-  x: number;
-  y: number;
+  id: string
+  x: number
+  y: number
 
   // Basic Identity
-  key: string;
-  title: string;
-  zone: string;
+  key: string
+  title: string
+  zone: string
 
   // Description
-  description: string;
-  builder_notes: string;
+  description: string
+  builder_notes: string
 
   // Environment
-  indoors: boolean;
-  outdoors: boolean;
-  underground: boolean;
-  underwater: boolean;
-  terrain_type: string;
-  surface_type: string;
-  biome: string;
+  indoors: boolean
+  outdoors: boolean
+  underground: boolean
+  underwater: boolean
+  terrain_type: string
+  surface_type: string
+  biome: string
 
   // Lighting / Visibility
-  light_level: number;
-  visibility_notes: string;
+  light_level: number
+  visibility_notes: string
 
   // Movement / Traversal
-  movement_cost: number;
-  difficult_terrain: boolean;
+  movement_cost: number
+  difficult_terrain: boolean
 
   // Interaction Features
-  can_rest: boolean;
-  can_camp: boolean;
-  can_forage: boolean;
-  can_fish: boolean;
-  can_track: boolean;
+  can_rest: boolean
+  can_camp: boolean
+  can_forage: boolean
+  can_fish: boolean
+  can_track: boolean
 
   // Combat / Special Rules
-  safe_room: boolean;
-  no_teleport: boolean;
-  no_recall: boolean;
-  hazards: string;
+  safe_room: boolean
+  no_teleport: boolean
+  no_recall: boolean
+  hazards: string
 
-  // Exits
-  exits: Exit[];
-  has_up: boolean;
-  has_down: boolean;
+  exits: Exit[]
+}
+
+export interface Floor {
+  id: string
+  name: string
+  width: number
+  height: number
+  rooms: Record<string, Room>
 }
 
 export interface MapData {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  rooms: Record<string, Room>; // keyed by room id
-  created_at: string;
-  updated_at: string;
+  id: string
+  name: string
+  floors: Floor[]
+  created_at: string
+  updated_at: string
 }
 
 export interface MapSummary {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  room_count: number;
-  updated_at: string;
+  id: string
+  name: string
+  room_count: number
+  floor_count: number
+  updated_at: string
 }
+
+// ---------------------------------------------------------------------------
+// Factories
+// ---------------------------------------------------------------------------
 
 /** Generate a short random ID (8 hex chars). */
 export function generateId(): string {
-  return Math.random().toString(16).substring(2, 10).padEnd(8, '0');
+  return Math.random().toString(16).substring(2, 10).padEnd(8, '0')
 }
 
 /** Build a fresh Room with sensible defaults at grid position (x, y). */
 export function createDefaultRoom(id: string, x: number, y: number): Room {
   return {
-    id,
-    x,
-    y,
+    id, x, y,
     key: `room_${id}`,
     title: 'Unnamed Room',
     zone: '',
@@ -149,7 +148,74 @@ export function createDefaultRoom(id: string, x: number, y: number): Room {
     no_recall: false,
     hazards: '',
     exits: [],
-    has_up: false,
-    has_down: false,
-  };
+  }
+}
+
+/** Build a fresh Floor with the given dimensions. */
+export function createDefaultFloor(
+  id: string, name: string, width: number, height: number,
+): Floor {
+  return { id, name, width, height, rooms: {} }
+}
+
+// ---------------------------------------------------------------------------
+// Migration: old single-floor format → new floors[] format
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensures any MapData loaded from the backend is in the current format.
+ * Old maps had a top-level `rooms` dict and global `width`/`height`.
+ * New maps have a `floors` array where each floor owns its rooms and dimensions.
+ */
+export function migrateMapData(raw: unknown): MapData {
+  const data = raw as Record<string, unknown>
+
+  // Already in new format — just ensure all exits have target_floor_id
+  if (Array.isArray(data.floors) && (data.floors as unknown[]).length > 0) {
+    const floors = (data.floors as Record<string, unknown>[]).map((f) => {
+      const floor = f as unknown as Floor
+      const rooms = Object.fromEntries(
+        Object.entries(floor.rooms ?? {}).map(([id, room]) => {
+          const r = room as Room & { has_up?: boolean; has_down?: boolean }
+          const exits = (r.exits ?? []).map((e) => ({
+            ...e,
+            target_floor_id: e.target_floor_id ?? floor.id,
+          }))
+          // Strip legacy fields
+          const { has_up: _u, has_down: _d, ...rest } = r as Room & { has_up?: unknown; has_down?: unknown }
+          void _u; void _d
+          return [id, { ...rest, exits }]
+        }),
+      )
+      return { ...floor, rooms } as Floor
+    })
+    return { ...data, floors } as MapData
+  }
+
+  // Old format: wrap top-level rooms into floors[0]
+  const floorId = generateId()
+  const oldRooms = (data.rooms as Record<string, unknown>) ?? {}
+  const floorW = (data.width as number) ?? 20
+  const floorH = (data.height as number) ?? 20
+
+  const rooms: Record<string, Room> = {}
+  for (const [id, rawRoom] of Object.entries(oldRooms)) {
+    const r = rawRoom as Room & { has_up?: boolean; has_down?: boolean }
+    const exits = (r.exits ?? []).map((e) => ({
+      ...e,
+      target_floor_id: (e as Exit).target_floor_id ?? floorId,
+    }))
+    // has_up / has_down had no target rooms — drop them; they weren't fully implemented
+    const { has_up: _u, has_down: _d, ...rest } = r as Room & { has_up?: unknown; has_down?: unknown }
+    void _u; void _d
+    rooms[id] = { ...rest, exits } as Room
+  }
+
+  return {
+    id: (data.id as string) ?? generateId(),
+    name: (data.name as string) ?? 'Untitled',
+    floors: [{ id: floorId, name: 'Floor 0', width: floorW, height: floorH, rooms }],
+    created_at: (data.created_at as string) ?? '',
+    updated_at: (data.updated_at as string) ?? '',
+  }
 }

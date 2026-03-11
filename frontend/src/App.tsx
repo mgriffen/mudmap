@@ -27,6 +27,9 @@ import { TevetharaPanel } from './components/TevetharaPanel'
 import { MultiSelectPanel } from './components/MultiSelectPanel'
 import { FloorExitWizard } from './components/FloorExitWizard'
 import { PortalDirectionPicker } from './components/PortalDirectionPicker'
+import { DescriptionEditor } from './components/DescriptionEditor'
+import { WorldMapCanvas } from './components/WorldMapCanvas'
+import { WorldMapCellPanel } from './components/WorldMapCellPanel'
 
 export default function App() {
   const {
@@ -37,6 +40,9 @@ export default function App() {
     openNewMapDialog,
     floorExitWizardRoomId,
     portalPickerOpen,
+    descriptionEditorRoomId,
+    viewMode,
+    worldCellPanelCell,
   } = useMapStore()
 
   // Ctrl+S / Cmd+S to save
@@ -68,7 +74,7 @@ export default function App() {
 
       {/* Main content area */}
       <div className="flex flex-1 overflow-hidden flex-col">
-        <FloorSelector />
+        {viewMode === 'floor' && <FloorSelector />}
 
         <div className="flex flex-1 overflow-hidden">
           {/* Left sidebar */}
@@ -76,22 +82,24 @@ export default function App() {
 
           {/* Canvas area */}
           <div className="flex-1 flex flex-col overflow-hidden">
-            <MapCanvas />
+            {viewMode === 'world' ? <WorldMapCanvas /> : <MapCanvas />}
           </div>
 
           {/* Right panel */}
-          {selectedRoomIds.length > 1    ? <MultiSelectPanel />   :
-           roomDataPanelRoomId           ? <RoomDataPanel />       :
-           exitOptionsPanelRoomId        ? <ExitOptionsPanel />    :
-                                           <TevetharaPanel />}
+          {viewMode === 'world' && worldCellPanelCell ? <WorldMapCellPanel /> :
+           selectedRoomIds.length > 1                 ? <MultiSelectPanel />  :
+           roomDataPanelRoomId                        ? <RoomDataPanel />     :
+           exitOptionsPanelRoomId                     ? <ExitOptionsPanel />  :
+                                                        <TevetharaPanel />}
         </div>
       </div>
 
       {/* Modal overlays */}
       <NewMapDialog />
       <MapListDialog />
-      {floorExitWizardRoomId && <FloorExitWizard />}
-      {portalPickerOpen      && <PortalDirectionPicker />}
+      {floorExitWizardRoomId    && <FloorExitWizard />}
+      {portalPickerOpen         && <PortalDirectionPicker />}
+      {descriptionEditorRoomId  && <DescriptionEditor />}
     </div>
   )
 }

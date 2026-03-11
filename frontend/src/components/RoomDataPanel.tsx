@@ -14,7 +14,7 @@
  *   - Combat / Special Rules
  */
 import { useCallback, useState } from 'react'
-import { X, Trash2 } from 'lucide-react'
+import { X, Trash2, PencilLine } from 'lucide-react'
 import { useMapStore } from '../store/mapStore'
 import type { Room } from '../types/map'
 
@@ -188,7 +188,7 @@ const BIOMES = [
 // Main panel component
 // ---------------------------------------------------------------------------
 export function RoomDataPanel() {
-  const { mapData, roomDataPanelRoomId, updateRoom, deleteRoom, closeRoomDataPanel, getActiveFloor } = useMapStore()
+  const { mapData, roomDataPanelRoomId, updateRoom, deleteRoom, closeRoomDataPanel, getActiveFloor, openDescriptionEditor } = useMapStore()
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   if (!roomDataPanelRoomId || !mapData) return null
@@ -259,7 +259,19 @@ export function RoomDataPanel() {
         </div>
 
         {/* ── Description ──────────────────────────────────────────── */}
-        <SectionHeader title="Description" />
+        <div className="flex items-center justify-between mt-4 mb-2 pb-1 border-b border-border">
+          <div className="text-xs font-heading font-semibold text-accent uppercase tracking-wider">
+            Description
+          </div>
+          <button
+            onClick={() => openDescriptionEditor(room.id)}
+            className="flex items-center gap-1 text-xs text-muted hover:text-accent transition-colors cursor-pointer"
+            title="Open full description editor"
+          >
+            <PencilLine size={12} />
+            Edit
+          </button>
+        </div>
 
         <Field label="Room Description">
           <TextArea

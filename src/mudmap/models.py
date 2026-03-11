@@ -108,6 +108,21 @@ class Room(BaseModel):
     has_down: Optional[bool] = None
 
 
+class Area(BaseModel):
+    """A named grouping of floors — maps to an Evennia area/zone."""
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
+    name: str
+    description: Optional[str] = None
+    color: str = "#4F46E5"
+
+
+class WorldCell(BaseModel):
+    """One cell on the world-map overview grid, linked to an Area."""
+    x: int
+    y: int
+    area_id: str
+
+
 class Floor(BaseModel):
     """One layer of a map — owns its own rooms and grid dimensions."""
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
@@ -115,18 +130,25 @@ class Floor(BaseModel):
     width: int = 20
     height: int = 20
     rooms: dict[str, Room] = Field(default_factory=dict)
+    area_id: Optional[str] = None
 
 
 class MapData(BaseModel):
     """
-    Top-level map object containing all floors.
+    Top-level map object containing all floors, areas, and world map.
 
     Each Floor owns a rooms dict keyed by room_id for O(1) lookup.
     Room (x, y) coordinates are relative to their floor's grid.
+    Areas group floors into named regions (Evennia zones).
+    WorldCell entries build the sparse world-map overview grid.
     """
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
     name: str
     floors: list[Floor] = Field(default_factory=list)
+    areas: list[Area] = Field(default_factory=list)
+    world_map: list[WorldCell] = Field(default_factory=list)
+    world_map_width: int = 10
+    world_map_height: int = 10
     created_at: str = ""
     updated_at: str = ""
 

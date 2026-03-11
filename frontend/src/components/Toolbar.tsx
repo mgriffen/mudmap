@@ -2,7 +2,7 @@
  * Toolbar — top bar with map controls, floor resize, and link mode toggle.
  */
 import { useState } from 'react'
-import { FilePlus, FolderOpen, Save, Info, PanelLeft, Link, Link2Off } from 'lucide-react'
+import { FilePlus, FolderOpen, Save, Info, PanelLeft, Link, Link2Off, Globe } from 'lucide-react'
 import { useMapStore } from '../store/mapStore'
 
 export function Toolbar() {
@@ -18,6 +18,8 @@ export function Toolbar() {
     enterLinkMode,
     exitLinkMode,
     getActiveFloor,
+    viewMode,
+    setViewMode,
   } = useMapStore()
 
   const [saving, setSaving] = useState(false)
@@ -100,15 +102,31 @@ export function Toolbar() {
         )}
       </div>
 
-      {/* ── Centre: floor resize controls ── */}
+      {/* ── Centre: resize controls (context-sensitive) ── */}
       <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1">
-        <FloorResizeControl />
+        {viewMode === 'floor' ? <FloorResizeControl /> : <WorldMapResizeControl />}
       </div>
 
       {/* ── Right group ── */}
       <div className="flex items-center gap-3 ml-auto z-10">
-        {/* Link mode toggle */}
+        {/* World map toggle */}
         {mapData && (
+          <button
+            onClick={() => setViewMode(viewMode === 'floor' ? 'world' : 'floor')}
+            title={viewMode === 'floor' ? 'Switch to World Map view' : 'Back to Floor editor'}
+            className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors cursor-pointer ${
+              viewMode === 'world'
+                ? 'text-blue-300 bg-blue-950/60 border border-blue-700 hover:bg-blue-950'
+                : 'text-muted hover:text-blue-300 hover:bg-blue-950/30'
+            }`}
+          >
+            <Globe size={13} />
+            {viewMode === 'world' ? 'Floor View' : 'World Map'}
+          </button>
+        )}
+
+        {/* Link mode toggle — only in floor view */}
+        {mapData && viewMode === 'floor' && (
           <button
             onClick={linkMode ? exitLinkMode : enterLinkMode}
             title={linkMode ? 'Cancel link mode (Esc)' : 'Link mode — create non-adjacent exits'}
@@ -126,11 +144,10 @@ export function Toolbar() {
         {mapData && (
           <span className="text-xs text-muted">
             {mapData.name}
-            {' · '}
-            {activeFloor?.name ?? ''}
-            {' · '}
-            {roomCount} room{roomCount !== 1 ? 's' : ''}
-            {floorCount > 1 ? ` · ${floorCount} floors` : ''}
+            {viewMode === 'world'
+              ? ` · World Map · ${(mapData.areas ?? []).length} area${(mapData.areas ?? []).length !== 1 ? 's' : ''}`
+              : ` · ${activeFloor?.name ?? ''} · ${roomCount} room${roomCount !== 1 ? 's' : ''}${floorCount > 1 ? ` · ${floorCount} floors` : ''}`
+            }
           </span>
         )}
         <KeyHints />
@@ -222,6 +239,36 @@ function FloorResizeControl() {
           {error}
         </span>
       )}
+    </div>
+  )
+}
+
+function WorldMapResizeControl() {
+  const { mapData, resizeWorldMap } = useMapStore()
+  if (!mapData) return null
+  const w = mapData.world_map_width
+  const h = mapData.world_map_height
+  const MIN = 2, MAX = 30
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-0 rounded-md overflow-hidden border border-border shadow-[0_2px_4px_rgba(0,0,0,0.4)]">
+        <DimButton label="−" disabled={w <= MIN} title="Decrease width" onClick={() => resizeWorldMap(w - 1, h)} />
+        <div className="flex flex-col items-center justify-center px-3 py-0.5 bg-[#0a1020] border-x border-border min-w-[3.5rem]" style={{ boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.5)' }}>
+          <span className="text-[9px] font-semibold uppercase tracking-widest text-muted leading-none mb-0.5">Width</span>
+          <span className="text-sm font-bold tabular-nums text-text leading-none">{w}</span>
+        </div>
+        <DimButton label="+" disabled={w >= MAX} title="Increase width" onClick={() => resizeWorldMap(w + 1, h)} />
+      </div>
+      <span className="text-muted text-base font-light select-none">×</span>
+      <div className="flex items-center gap-0 rounded-md overflow-hidden border border-border shadow-[0_2px_4px_rgba(0,0,0,0.4)]">
+        <DimButton label="−" disabled={h <= MIN} title="Decrease height" onClick={() => resizeWorldMap(w, h - 1)} />
+        <div className="flex flex-col items-center justify-center px-3 py-0.5 bg-[#0a1020] border-x border-border min-w-[3.5rem]" style={{ boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.5)' }}>
+          <span className="text-[9px] font-semibold uppercase tracking-widest text-muted leading-none mb-0.5">Height</span>
+          <span className="text-sm font-bold tabular-nums text-text leading-none">{h}</span>
+        </div>
+        <DimButton label="+" disabled={h >= MAX} title="Increase height" onClick={() => resizeWorldMap(w, h + 1)} />
+      </div>
     </div>
   )
 }

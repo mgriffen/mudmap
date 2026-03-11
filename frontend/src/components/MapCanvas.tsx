@@ -10,6 +10,7 @@
  * Mouse interaction map:
  *   Empty cell         left-click           → create room + open Room Data panel
  *   Active room        left-click           → select / deselect
+ *   Active room        double-click         → open Description Editor
  *   Active room        right-click          → open Room Data panel
  *   Active room        alt+click            → open Exit Options panel
  *   Active room        shift+click          → open Floor Exit Wizard (up/down link)
@@ -507,6 +508,7 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     openRoomDataPanel,
     openExitOptionsPanel,
     openFloorExitWizard,
+    openDescriptionEditor,
     linkMode,
     linkSourceRoomId,
     setLinkSource,
@@ -817,6 +819,19 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     [activeFloor, layout, getRoomAt, openRoomDataPanel, linkMode, exitLinkMode],
   )
 
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (!activeFloor || linkMode) return
+      const { px, py } = getCanvasPos(e)
+      const hit = hitTest(px, py, activeFloor.width, activeFloor.height, layout)
+      if (hit.type === 'room') {
+        const room = getRoomAt(hit.gx, hit.gy)
+        if (room) openDescriptionEditor(room.id)
+      }
+    },
+    [activeFloor, layout, linkMode, getRoomAt, openDescriptionEditor],
+  )
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -866,6 +881,7 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
             onMouseUp={handleMouseUp}
+            onDoubleClick={handleDoubleClick}
             onContextMenu={handleContextMenu}
             className={`block ${linkMode ? 'cursor-cell' : 'cursor-crosshair'}`}
             aria-label="Map editor grid"

@@ -85,18 +85,44 @@ export interface Room {
   exits: Exit[]
 }
 
+/** Color palette cycled when creating new areas. */
+export const AREA_COLOR_PALETTE = [
+  '#4F46E5', '#0EA5E9', '#10B981', '#F59E0B',
+  '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6',
+]
+
+/** A named grouping of floors (an Evennia "area"). */
+export interface Area {
+  id: string
+  name: string
+  description?: string
+  color: string   // CSS hex — used on world map and sidebar
+}
+
+/** One cell on the world map grid pointing to an Area. */
+export interface WorldCell {
+  x: number
+  y: number
+  area_id: string
+}
+
 export interface Floor {
   id: string
   name: string
   width: number
   height: number
   rooms: Record<string, Room>
+  area_id?: string   // which Area this floor belongs to
 }
 
 export interface MapData {
   id: string
   name: string
   floors: Floor[]
+  areas: Area[]
+  world_map: WorldCell[]
+  world_map_width: number
+  world_map_height: number
   created_at: string
   updated_at: string
 }
@@ -175,6 +201,11 @@ export function createDefaultFloor(
   return { id, name, width, height, rooms: {} }
 }
 
+/** Build a fresh Area, cycling through the color palette. */
+export function createDefaultArea(id: string, name: string, index: number): Area {
+  return { id, name, color: AREA_COLOR_PALETTE[index % AREA_COLOR_PALETTE.length] }
+}
+
 // ---------------------------------------------------------------------------
 // Migration: old single-floor format → new floors[] format
 // ---------------------------------------------------------------------------
@@ -186,6 +217,13 @@ export function createDefaultFloor(
  */
 export function migrateMapData(raw: unknown): MapData {
   const data = raw as Record<string, unknown>
+
+  const newFieldDefaults = {
+    areas: [] as Area[],
+    world_map: [] as WorldCell[],
+    world_map_width: 10,
+    world_map_height: 10,
+  }
 
   // Already in new format — just ensure all exits have target_floor_id
   if (Array.isArray(data.floors) && (data.floors as unknown[]).length > 0) {
@@ -206,7 +244,11 @@ export function migrateMapData(raw: unknown): MapData {
       )
       return { ...floor, rooms } as Floor
     })
-    return { ...data, floors } as MapData
+    return {
+      ...newFieldDefaults,
+      ...data,
+      floors,
+    } as MapData
   }
 
   // Old format: wrap top-level rooms into floors[0]
@@ -229,6 +271,7 @@ export function migrateMapData(raw: unknown): MapData {
   }
 
   return {
+    ...newFieldDefaults,
     id: (data.id as string) ?? generateId(),
     name: (data.name as string) ?? 'Untitled',
     floors: [{ id: floorId, name: 'Floor 0', width: floorW, height: floorH, rooms }],

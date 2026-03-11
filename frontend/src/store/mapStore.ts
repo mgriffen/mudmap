@@ -8,12 +8,13 @@
  * Cross-floor exits carry target_floor_id so they can be resolved anywhere.
  */
 import { create } from 'zustand'
-import type { MapData, Floor, Room, Exit, Direction } from '../types/map'
+import type { MapData, Floor, Room, Exit, Direction, Area, WorldCell } from '../types/map'
 import {
   OPPOSITE_DIR,
   generateId,
   createDefaultRoom,
   createDefaultFloor,
+  createDefaultArea,
   migrateMapData,
 } from '../types/map'
 import * as api from '../api/client'
@@ -52,6 +53,16 @@ interface MapStore {
   // Floor exit wizard — opened by Shift+Click on a room
   floorExitWizardRoomId: string | null
 
+  // Description editor modal
+  descriptionEditorRoomId: string | null
+
+  // View mode: floor editor vs world map overview
+  viewMode: 'floor' | 'world'
+
+  // World map UI state
+  selectedAreaId: string | null
+  worldCellPanelCell: { x: number; y: number } | null
+
   // -------------------------------------------------------------------------
   // Computed helpers (read active floor from state)
   // -------------------------------------------------------------------------
@@ -75,6 +86,7 @@ interface MapStore {
   setActiveFloorId: (id: string) => void
   renameFloor: (floorId: string, name: string) => void
   resizeFloor: (floorId: string, newWidth: number, newHeight: number) => string | null
+  reorderFloor: (floorId: string, direction: 'up' | 'down') => void
 
   // -------------------------------------------------------------------------
   // Room mutations (operate on active floor unless noted)
@@ -151,6 +163,35 @@ interface MapStore {
   closeMapListDialog: () => void
   toggleLeftSidebar: () => void
   setActiveTemplate: (id: string | null) => void
+
+  // Description editor
+  openDescriptionEditor: (roomId: string) => void
+  closeDescriptionEditor: () => void
+
+  // -------------------------------------------------------------------------
+  // Area management
+  // -------------------------------------------------------------------------
+  createArea: (name: string) => Area
+  updateArea: (areaId: string, updates: Partial<Area>) => void
+  deleteArea: (areaId: string) => void
+  assignFloorToArea: (floorId: string, areaId: string | null) => void
+
+  // -------------------------------------------------------------------------
+  // World map
+  // -------------------------------------------------------------------------
+  setViewMode: (mode: 'floor' | 'world') => void
+  selectArea: (areaId: string | null) => void
+  setWorldCell: (x: number, y: number, areaId: string | null) => void
+  resizeWorldMap: (w: number, h: number) => void
+  openWorldCellPanel: (x: number, y: number) => void
+  closeWorldCellPanel: () => void
+
+  // -------------------------------------------------------------------------
+  // Computed helpers
+  // -------------------------------------------------------------------------
+  getArea: (areaId: string) => Area | undefined
+  getWorldCell: (x: number, y: number) => WorldCell | undefined
+  getAreaFloors: (areaId: string) => Floor[]
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +246,10 @@ export const useMapStore = create<MapStore>((set, get) => ({
   portalPickerTargetRoomId: null,
   portalPickerTargetFloorId: null,
   floorExitWizardRoomId: null,
+  descriptionEditorRoomId: null,
+  viewMode: 'floor',
+  selectedAreaId: null,
+  worldCellPanelCell: null,
 
   // --- Computed helpers -----------------------------------------------------
 
@@ -237,6 +282,9 @@ export const useMapStore = create<MapStore>((set, get) => ({
       isDirty: false,
       roomDataPanelRoomId: null,
       exitOptionsPanelRoomId: null,
+      viewMode: 'floor',
+      selectedAreaId: null,
+      worldCellPanelCell: null,
     })
   },
 
@@ -246,6 +294,10 @@ export const useMapStore = create<MapStore>((set, get) => ({
       id: generateId(),
       name,
       floors: [{ id: floorId, name: 'Floor 0', width, height, rooms: {} }],
+      areas: [],
+      world_map: [],
+      world_map_width: 10,
+      world_map_height: 10,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
@@ -258,6 +310,9 @@ export const useMapStore = create<MapStore>((set, get) => ({
       newMapDialogOpen: false,
       roomDataPanelRoomId: null,
       exitOptionsPanelRoomId: null,
+      viewMode: 'floor',
+      selectedAreaId: null,
+      worldCellPanelCell: null,
     })
     return mapData
   },
@@ -327,6 +382,19 @@ export const useMapStore = create<MapStore>((set, get) => ({
       mapData: state.mapData ? patchFloor(state.mapData, floorId, { name }) : null,
       isDirty: true,
     }))
+  },
+
+  reorderFloor: (floorId, direction) => {
+    set((state) => {
+      if (!state.mapData) return state
+      const floors = [...state.mapData.floors]
+      const idx = floors.findIndex((f) => f.id === floorId)
+      if (idx < 0) return state
+      const swap = direction === 'up' ? idx - 1 : idx + 1
+      if (swap < 0 || swap >= floors.length) return state
+      ;[floors[idx], floors[swap]] = [floors[swap], floors[idx]]
+      return { mapData: { ...state.mapData, floors }, isDirty: true }
+    })
   },
 
   resizeFloor: (floorId, newWidth, newHeight) => {
@@ -736,4 +804,107 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
   setActiveTemplate: (id) =>
     set((s) => ({ activeTemplateId: s.activeTemplateId === id ? null : id })),
+
+  openDescriptionEditor:  (roomId) => set({ descriptionEditorRoomId: roomId }),
+  closeDescriptionEditor: ()       => set({ descriptionEditorRoomId: null }),
+
+  // --- Area management ------------------------------------------------------
+
+  createArea: (name) => {
+    const { mapData } = get()
+    const area = createDefaultArea(generateId(), name, (mapData?.areas ?? []).length)
+    set((state) => ({
+      mapData: state.mapData
+        ? { ...state.mapData, areas: [...(state.mapData.areas ?? []), area] }
+        : null,
+      isDirty: true,
+    }))
+    return area
+  },
+
+  updateArea: (areaId, updates) => {
+    set((state) => ({
+      mapData: state.mapData
+        ? { ...state.mapData, areas: (state.mapData.areas ?? []).map((a) => a.id === areaId ? { ...a, ...updates } : a) }
+        : null,
+      isDirty: true,
+    }))
+  },
+
+  deleteArea: (areaId) => {
+    set((state) => {
+      if (!state.mapData) return state
+      return {
+        mapData: {
+          ...state.mapData,
+          areas: (state.mapData.areas ?? []).filter((a) => a.id !== areaId),
+          floors: state.mapData.floors.map((f) =>
+            f.area_id === areaId ? { ...f, area_id: undefined } : f,
+          ),
+          world_map: (state.mapData.world_map ?? []).filter((c) => c.area_id !== areaId),
+        },
+        selectedAreaId: state.selectedAreaId === areaId ? null : state.selectedAreaId,
+        isDirty: true,
+      }
+    })
+  },
+
+  assignFloorToArea: (floorId, areaId) => {
+    set((state) => ({
+      mapData: state.mapData
+        ? patchFloor(state.mapData, floorId, { area_id: areaId ?? undefined })
+        : null,
+      isDirty: true,
+    }))
+  },
+
+  // --- World map ------------------------------------------------------------
+
+  setViewMode: (mode) =>
+    set((state) => ({
+      viewMode: mode,
+      worldCellPanelCell: mode === 'floor' ? null : state.worldCellPanelCell,
+      roomDataPanelRoomId: mode === 'world' ? null : state.roomDataPanelRoomId,
+      exitOptionsPanelRoomId: mode === 'world' ? null : state.exitOptionsPanelRoomId,
+      descriptionEditorRoomId: mode === 'world' ? null : state.descriptionEditorRoomId,
+    })),
+
+  selectArea: (areaId) => set({ selectedAreaId: areaId }),
+
+  setWorldCell: (x, y, areaId) => {
+    set((state) => {
+      if (!state.mapData) return state
+      const filtered = (state.mapData.world_map ?? []).filter((c) => !(c.x === x && c.y === y))
+      const world_map = areaId ? [...filtered, { x, y, area_id: areaId }] : filtered
+      return { mapData: { ...state.mapData, world_map }, isDirty: true }
+    })
+  },
+
+  resizeWorldMap: (w, h) => {
+    set((state) => {
+      if (!state.mapData) return state
+      return {
+        mapData: {
+          ...state.mapData,
+          world_map_width: w,
+          world_map_height: h,
+          world_map: (state.mapData.world_map ?? []).filter((c) => c.x < w && c.y < h),
+        },
+        isDirty: true,
+      }
+    })
+  },
+
+  openWorldCellPanel: (x, y) => set({ worldCellPanelCell: { x, y } }),
+  closeWorldCellPanel: () => set({ worldCellPanelCell: null }),
+
+  // --- Computed helpers -----------------------------------------------------
+
+  getArea: (areaId) => (get().mapData?.areas ?? []).find((a) => a.id === areaId),
+
+  getWorldCell: (x, y) =>
+    (get().mapData?.world_map ?? []).find((c) => c.x === x && c.y === y),
+
+  getAreaFloors: (areaId) =>
+    (get().mapData?.floors ?? []).filter((f) => f.area_id === areaId),
 }))

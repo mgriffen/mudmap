@@ -118,12 +118,29 @@ export function generateId(): string {
   return Math.random().toString(16).substring(2, 10).padEnd(8, '0')
 }
 
+/**
+ * Convert a zero-based grid position to spreadsheet-style label.
+ * Column → letter(s): 0→A, 1→B, …, 25→Z, 26→AA, 27→AB, …
+ * Row    → 1-based number: 0→1, 1→2, …
+ * Examples: (0,0)→"A1", (2,1)→"C2", (26,0)→"AA1"
+ */
+export function gridLabel(x: number, y: number): string {
+  let col = ''
+  let n = x + 1
+  while (n > 0) {
+    n -= 1
+    col = String.fromCharCode(65 + (n % 26)) + col
+    n = Math.floor(n / 26)
+  }
+  return `${col}${y + 1}`
+}
+
 /** Build a fresh Room with sensible defaults at grid position (x, y). */
 export function createDefaultRoom(id: string, x: number, y: number): Room {
   return {
     id, x, y,
     key: `room_${id}`,
-    title: 'Unnamed Room',
+    title: gridLabel(x, y),
     zone: '',
     description: '',
     builder_notes: '',

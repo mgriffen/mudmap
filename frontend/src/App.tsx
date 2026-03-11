@@ -51,14 +51,24 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [mapData, saveMap])
 
+  // No map loaded — full-screen welcome, no chrome
+  if (!mapData) {
+    return (
+      <div className="h-screen flex flex-col bg-canvas text-text overflow-hidden">
+        <WelcomePage onNew={openNewMapDialog} />
+        <NewMapDialog />
+        <MapListDialog />
+      </div>
+    )
+  }
+
   return (
     <div className="h-screen flex flex-col bg-canvas text-text overflow-hidden">
       <Toolbar />
 
       {/* Main content area */}
       <div className="flex flex-1 overflow-hidden flex-col">
-        {/* Floor selector — shown when a map is loaded */}
-        {mapData && <FloorSelector />}
+        <FloorSelector />
 
         <div className="flex flex-1 overflow-hidden">
           {/* Left sidebar */}
@@ -66,11 +76,7 @@ export default function App() {
 
           {/* Canvas area */}
           <div className="flex-1 flex flex-col overflow-hidden">
-            {mapData ? (
-              <MapCanvas />
-            ) : (
-              <EmptyState onNew={openNewMapDialog} />
-            )}
+            <MapCanvas />
           </div>
 
           {/* Right panel */}
@@ -91,36 +97,40 @@ export default function App() {
 }
 
 // ---------------------------------------------------------------------------
-// Empty state shown when no map is loaded
+// Full-screen welcome page — shown before any map is loaded
 // ---------------------------------------------------------------------------
-function EmptyState({ onNew }: { onNew: () => void }) {
+function WelcomePage({ onNew }: { onNew: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center flex-1 gap-5 text-center px-8">
-      <div className="text-5xl font-heading font-bold text-surface border border-border rounded-xl w-24 h-24 flex items-center justify-center text-muted select-none">
-        mm
+    <div className="flex-1 flex flex-col items-center justify-center gap-8 text-center px-8">
+      {/* Logo mark */}
+      <div className="w-24 h-24 rounded-2xl border-2 border-border bg-surface flex items-center justify-center select-none">
+        <span className="font-heading font-bold text-3xl text-accent">mm</span>
       </div>
-      <div>
-        <h1 className="font-heading font-bold text-xl text-text mb-1">mudmap</h1>
-        <p className="text-sm text-muted max-w-xs">
-          MUD area map builder for Tevethara. Create grid-based area maps,
-          define rooms, connect exits, and export to JSON for Evennia.
+
+      {/* Heading + tagline */}
+      <div className="flex flex-col gap-2">
+        <h1 className="font-heading font-bold text-4xl text-text">mudmap</h1>
+        <p className="text-muted text-base max-w-sm">
+          MUD area map builder for Tevethara — design rooms, connect exits,
+          and export to Evennia.
         </p>
       </div>
-      <button
-        onClick={onNew}
-        className="bg-accent hover:bg-accent-hover text-canvas text-sm font-semibold px-5 py-2 rounded transition-colors cursor-pointer"
-      >
-        Create New Map
-      </button>
-      <p className="text-xs text-muted">
-        or{' '}
+
+      {/* Actions */}
+      <div className="flex flex-col items-center gap-3">
+        <button
+          onClick={onNew}
+          className="bg-accent hover:bg-accent-hover text-canvas text-sm font-semibold px-8 py-3 rounded-lg transition-colors cursor-pointer"
+        >
+          Create New Map
+        </button>
         <button
           onClick={() => useMapStore.getState().openMapListDialog()}
-          className="text-accent hover:underline cursor-pointer bg-transparent border-none"
+          className="text-accent text-sm hover:underline cursor-pointer bg-transparent border-none"
         >
-          open an existing map
+          Open existing map
         </button>
-      </p>
+      </div>
     </div>
   )
 }

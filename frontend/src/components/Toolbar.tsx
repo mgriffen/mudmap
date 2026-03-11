@@ -2,7 +2,7 @@
  * Toolbar — top bar with map controls, floor resize, and link mode toggle.
  */
 import { useState } from 'react'
-import { FilePlus, FolderOpen, Save, Info, PanelLeft, Link, Link2Off, Globe } from 'lucide-react'
+import { FilePlus, FolderOpen, Save, Info, PanelLeft, Globe } from 'lucide-react'
 import { useMapStore } from '../store/mapStore'
 
 export function Toolbar() {
@@ -14,9 +14,6 @@ export function Toolbar() {
     openMapListDialog,
     leftSidebarOpen,
     toggleLeftSidebar,
-    linkMode,
-    enterLinkMode,
-    exitLinkMode,
     getActiveFloor,
     viewMode,
     setViewMode,
@@ -122,22 +119,6 @@ export function Toolbar() {
           >
             <Globe size={13} />
             {viewMode === 'world' ? 'Floor View' : 'World Map'}
-          </button>
-        )}
-
-        {/* Link mode toggle — only in floor view */}
-        {mapData && viewMode === 'floor' && (
-          <button
-            onClick={linkMode ? exitLinkMode : enterLinkMode}
-            title={linkMode ? 'Cancel link mode (Esc)' : 'Link mode — create non-adjacent exits'}
-            className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors cursor-pointer ${
-              linkMode
-                ? 'text-purple-300 bg-purple-950/60 border border-purple-700 hover:bg-purple-950'
-                : 'text-muted hover:text-purple-300 hover:bg-purple-950/30'
-            }`}
-          >
-            {linkMode ? <Link2Off size={13} /> : <Link size={13} />}
-            {linkMode ? 'Cancel Link' : 'Link'}
           </button>
         )}
 
@@ -324,12 +305,11 @@ function KeyHints() {
                 ['Click room',         'Select / deselect'],
                 ['Right-click room',   'Edit room data'],
                 ['Alt+click room',     'Manage exits'],
-                ['Shift+click room',   'Floor exit wizard (up/down)'],
+                ['Shift+click room',   'Manage exits'],
                 ['Ctrl+click room',    'Add to multi-selection'],
                 ['Click connector',    'Toggle N/S/E/W exit'],
                 ['Delete / Backspace', 'Delete selected room'],
-                ['Link button',        'Link any two rooms'],
-                ['Esc',                'Cancel link / clear selection'],
+                ['Esc',                'Clear selection'],
               ].map(([key, desc]) => (
                 <tr key={key}>
                   <td className="py-0.5 pr-3 text-text font-mono text-xs whitespace-nowrap">{key}</td>
@@ -346,7 +326,6 @@ function KeyHints() {
             {[
               [<span className="inline-block w-3 h-3 rounded-sm bg-[#1E293B] border border-[#334155]"/>, 'Active room'],
               [<span className="inline-block w-3 h-3 rounded-sm bg-[#14532D] border border-[#22C55E]"/>, 'Selected room'],
-              [<span className="inline-block w-3 h-3 rounded-sm bg-[#2D1B4E] border border-[#A855F7]"/>, 'Link source'],
               [<span className="inline-block w-3 h-3 rounded-sm bg-[#1E3A5F]"/>, 'Safe room'],
               [<span className="inline-block w-3 h-1 bg-[#22C55E]"/>, 'Exit connection'],
               [<span className="text-[#60A5FA] font-bold">▲</span>, 'UP exit'],

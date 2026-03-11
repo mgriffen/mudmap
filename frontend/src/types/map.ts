@@ -36,6 +36,10 @@ export interface Exit {
   one_way: boolean
   /** True when the target room has been deleted. Shown as a broken-exit marker. */
   broken?: boolean
+  /** Custom display name for Evennia (e.g. "gate", "ladder", "portal"). */
+  alias?: string
+  /** Description shown when player looks at the exit. */
+  exit_description?: string
 }
 
 export interface Room {

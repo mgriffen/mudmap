@@ -47,6 +47,8 @@ class Exit(BaseModel):
     one_way: bool = False
     # True if the target room was deleted; shown as a broken-exit marker.
     broken: bool = False
+    alias: Optional[str] = None
+    exit_description: Optional[str] = None
 
 
 class Room(BaseModel):

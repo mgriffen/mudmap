@@ -142,9 +142,6 @@ const C = {
   brokenExit:          '#EF4444',
   multiSelectedFill:   '#3D1505',
   multiSelectedBorder: '#F97316',
-  linkSourceFill:      '#2D1B4E',
-  linkSourceBorder:    '#A855F7',
-  linkModeFill:        '#1A1428',
 } as const
 
 const TERRAIN_FILL: Record<string, string> = {
@@ -243,8 +240,6 @@ interface DrawState {
   selectedRoomIds: Set<string>
   roomsByPos: Record<string, Room>
   dragRect: { x: number; y: number; w: number; h: number } | null
-  linkMode: boolean
-  linkSourceRoomId: string | null
 }
 
 function drawAll(
@@ -254,7 +249,7 @@ function drawAll(
   l: GridLayout,
 ) {
   const { width, height } = floor
-  const { hover, selectedRoomId, selectedRoomIds, roomsByPos, linkMode, linkSourceRoomId } = ds
+  const { hover, selectedRoomId, selectedRoomIds, roomsByPos } = ds
   const cw = totalW(width,  l)
   const ch = totalH(height, l)
 
@@ -271,9 +266,7 @@ function drawAll(
       // ── Room cell ───────────────────────────────────────────────────────
       if (!room) {
         roundRect(ctx, x, y, l.cell, l.cell, l.r)
-        ctx.fillStyle   = linkMode
-          ? C.linkModeFill
-          : isHover ? C.emptyHoverFill : C.emptyFill
+        ctx.fillStyle   = isHover ? C.emptyHoverFill : C.emptyFill
         ctx.fill()
         ctx.strokeStyle = isHover ? C.emptyHoverBorder : C.emptyBorder
         ctx.lineWidth   = 1
@@ -281,7 +274,6 @@ function drawAll(
       } else {
         const isSel     = room.id === selectedRoomId
         const isMulti   = selectedRoomIds.has(room.id)
-        const isSource  = linkMode && room.id === linkSourceRoomId
         const hasBroken = room.exits.some((e) => e.broken)
         const hasUp     = room.exits.some((e) => e.direction === 'up'   && !e.broken)
         const hasDown   = room.exits.some((e) => e.direction === 'down' && !e.broken)
@@ -290,23 +282,18 @@ function drawAll(
 
         const terrainFill = TERRAIN_FILL[room.terrain_type] ?? TERRAIN_FILL.default
         let fill: string = terrainFill
-        if (room.safe_room && !isSel && !isMulti && !isSource) fill = C.safeRoomFill
-        if (isHover && !isSel && !isMulti && !isSource)
+        if (room.safe_room && !isSel && !isMulti) fill = C.safeRoomFill
+        if (isHover && !isSel && !isMulti)
           fill = lightenHex(room.safe_room ? C.safeRoomFill : terrainFill)
-        if (isMulti && !isSel && !isSource) fill = C.multiSelectedFill
-        if (isSel && !isSource)             fill = C.roomSelectedFill
-        if (isSource)                       fill = C.linkSourceFill
-        if (linkMode && !isSource && !isSel && !isMulti)
-          fill = lightenHex(fill, -6)  // dim non-source rooms in link mode
+        if (isMulti && !isSel) fill = C.multiSelectedFill
+        if (isSel)             fill = C.roomSelectedFill
         ctx.fillStyle = fill
         ctx.fill()
 
-        ctx.strokeStyle = isSource
-          ? C.linkSourceBorder
-          : isSel   ? C.roomSelectedBorder
+        ctx.strokeStyle = isSel   ? C.roomSelectedBorder
           : isMulti ? C.multiSelectedBorder
           : C.roomBorder
-        ctx.lineWidth = isSource || isSel || isMulti ? 2 : 1
+        ctx.lineWidth = isSel || isMulti ? 2 : 1
         ctx.stroke()
 
         // Labels
@@ -388,7 +375,7 @@ function drawAll(
               ctx.closePath()
               ctx.fill()
             }
-          } else if (isConnHover && !linkMode) {
+          } else if (isConnHover) {
             ctx.fillStyle = C.connectorHover
             const hw = Math.max(2, Math.round(l.gap * 0.25))
             ctx.fillRect(connX + hw, midY - 2, l.gap - hw * 2, 4)
@@ -441,7 +428,7 @@ function drawAll(
               ctx.closePath()
               ctx.fill()
             }
-          } else if (isConnHover && !linkMode) {
+          } else if (isConnHover) {
             ctx.fillStyle = C.connectorHover
             const hh = Math.max(2, Math.round(l.gap * 0.25))
             ctx.fillRect(midX - 2, connY + hh, 4, l.gap - hh * 2)
@@ -506,14 +493,8 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     deleteRooms,
     toggleGridExit,
     openRoomDataPanel,
-    openExitOptionsPanel,
-    openFloorExitWizard,
+    openExitManager,
     openDescriptionEditor,
-    linkMode,
-    linkSourceRoomId,
-    setLinkSource,
-    openPortalPicker,
-    exitLinkMode,
   } = useMapStore()
 
   const activeFloor = getActiveFloor()
@@ -564,10 +545,8 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
       selectedRoomIds: selectedRoomIdsSet,
       roomsByPos: buildRoomsByPos(),
       dragRect: dragRectRef.current,
-      linkMode,
-      linkSourceRoomId,
     }, layout)
-  }, [activeFloor, selectedRoomId, selectedRoomIdsSet, buildRoomsByPos, layout, linkMode, linkSourceRoomId])
+  }, [activeFloor, selectedRoomId, selectedRoomIdsSet, buildRoomsByPos, layout])
 
   useEffect(() => { redraw() }, [redraw])
 
@@ -578,11 +557,7 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
       const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
 
       if (e.key === 'Escape') {
-        if (linkMode) {
-          exitLinkMode()
-        } else {
-          clearMultiSelect()
-        }
+        clearMultiSelect()
         return
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
@@ -604,7 +579,7 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [
     selectedRoomId, selectedRoomIdsArr, activeFloor, deleteRoom, deleteRooms,
-    setSelectedRoomIds, clearMultiSelect, linkMode, exitLinkMode,
+    setSelectedRoomIds, clearMultiSelect,
   ])
 
   // Mouse-wheel zoom
@@ -709,7 +684,7 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
       // ── Finish rubber-band drag ─────────────────────────────────────────
       if (isDraggingRef.current) {
         const rect = dragRectRef.current
-        if (rect && !linkMode) {
+        if (rect) {
           const x0 = Math.min(rect.x, rect.x + rect.w)
           const y0 = Math.min(rect.y, rect.y + rect.h)
           const x1 = Math.max(rect.x, rect.x + rect.w)
@@ -737,23 +712,6 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
 
       const hit = hitTest(px, py, activeFloor.width, activeFloor.height, layout)
 
-      // ── Link mode ───────────────────────────────────────────────────────
-      if (linkMode) {
-        if (hit.type === 'room') {
-          const room = getRoomAt(hit.gx, hit.gy)
-          if (room) {
-            if (!linkSourceRoomId) {
-              setLinkSource(room.id, activeFloorId)
-            } else {
-              openPortalPicker(room.id, activeFloorId)
-            }
-          }
-        } else {
-          exitLinkMode()
-        }
-        return
-      }
-
       // ── Normal mode ─────────────────────────────────────────────────────
       if (hit.type === 'room') {
         const { gx, gy } = hit
@@ -765,11 +723,10 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
           openRoomDataPanel(newRoom.id)
           onRoomCreated?.(newRoom.id)
         } else if (e.shiftKey) {
-          // Shift+click: open Floor Exit Wizard for up/down link
-          openFloorExitWizard(room.id)
+          openExitManager(room.id)
         } else if (e.altKey) {
           clearMultiSelect()
-          openExitOptionsPanel(room.id)
+          openExitManager(room.id)
         } else if (e.ctrlKey || e.metaKey) {
           // Ctrl+click: toggle room in/out of multi-selection
           const next = selectedRoomIdsArr.includes(room.id)
@@ -795,11 +752,9 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     },
     [
       activeFloor, activeFloorId, layout, selectedRoomId, selectedRoomIdsArr,
-      linkMode, linkSourceRoomId,
       getRoomAt, createRoom, selectRoom, deleteRoom, deleteRooms,
       toggleGridExit,
-      openRoomDataPanel, openExitOptionsPanel, openFloorExitWizard,
-      setLinkSource, openPortalPicker, exitLinkMode,
+      openRoomDataPanel, openExitManager,
       onRoomCreated, setSelectedRoomIds, clearMultiSelect, redraw,
     ],
   )
@@ -808,7 +763,6 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (!activeFloor) return
       e.preventDefault()
-      if (linkMode) { exitLinkMode(); return }
       const { px, py } = getCanvasPos(e)
       const hit = hitTest(px, py, activeFloor.width, activeFloor.height, layout)
       if (hit.type === 'room') {
@@ -816,12 +770,12 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
         if (room) openRoomDataPanel(room.id)
       }
     },
-    [activeFloor, layout, getRoomAt, openRoomDataPanel, linkMode, exitLinkMode],
+    [activeFloor, layout, getRoomAt, openRoomDataPanel],
   )
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!activeFloor || linkMode) return
+      if (!activeFloor) return
       const { px, py } = getCanvasPos(e)
       const hit = hitTest(px, py, activeFloor.width, activeFloor.height, layout)
       if (hit.type === 'room') {
@@ -829,7 +783,7 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
         if (room) openDescriptionEditor(room.id)
       }
     },
-    [activeFloor, layout, linkMode, getRoomAt, openDescriptionEditor],
+    [activeFloor, layout, getRoomAt, openDescriptionEditor],
   )
 
   // ---------------------------------------------------------------------------
@@ -850,18 +804,6 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
 
   return (
     <div className="flex-1 overflow-hidden relative">
-      {/* Link mode banner */}
-      {linkMode && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-          <div className="flex items-center gap-2 bg-purple-950/95 border border-purple-600 rounded-full px-4 py-1.5 shadow-lg text-xs text-purple-200 backdrop-blur-sm">
-            <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-            {linkSourceRoomId
-              ? 'Click target room to create exit — or right-click to cancel'
-              : 'Click source room to begin linking'}
-          </div>
-        </div>
-      )}
-
       {/* Scrollable canvas viewport */}
       <div ref={containerRef} className="absolute inset-0 overflow-auto">
         <div
@@ -883,7 +825,7 @@ export function MapCanvas({ onRoomCreated }: MapCanvasProps) {
             onMouseUp={handleMouseUp}
             onDoubleClick={handleDoubleClick}
             onContextMenu={handleContextMenu}
-            className={`block ${linkMode ? 'cursor-cell' : 'cursor-crosshair'}`}
+            className="block cursor-crosshair"
             aria-label="Map editor grid"
           />
         </div>

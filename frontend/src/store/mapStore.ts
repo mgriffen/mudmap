@@ -36,22 +36,11 @@ interface MapStore {
   selectedRoomId: string | null
   selectedRoomIds: string[]
   roomDataPanelRoomId: string | null
-  exitOptionsPanelRoomId: string | null
+  exitManagerRoomId: string | null
   newMapDialogOpen: boolean
   mapListDialogOpen: boolean
   leftSidebarOpen: boolean
   activeTemplateId: string | null
-
-  // Link mode — for creating exits between any two rooms
-  linkMode: boolean
-  linkSourceRoomId: string | null
-  linkSourceFloorId: string | null
-  portalPickerOpen: boolean
-  portalPickerTargetRoomId: string | null
-  portalPickerTargetFloorId: string | null
-
-  // Floor exit wizard — opened by Shift+Click on a room
-  floorExitWizardRoomId: string | null
 
   // Description editor modal
   descriptionEditorRoomId: string | null
@@ -108,6 +97,7 @@ interface MapStore {
     sourceRoomId: string, sourceFloorId: string,
     targetRoomId: string, targetFloorId: string,
     dir: Direction, oneWay: boolean,
+    alias?: string, exitDescription?: string,
   ) => void
   /** Patch one field on a specific exit in the active floor. */
   updateExit: (roomId: string, direction: Direction, updates: Partial<Exit>) => void
@@ -115,37 +105,10 @@ interface MapStore {
   removeExit: (roomId: string, direction: Direction) => void
 
   // -------------------------------------------------------------------------
-  // Link mode (create exit between any two rooms)
+  // Exit manager modal
   // -------------------------------------------------------------------------
-  enterLinkMode: () => void
-  exitLinkMode: () => void
-  setLinkSource: (roomId: string, floorId: string) => void
-  openPortalPicker: (targetRoomId: string, targetFloorId: string) => void
-  closePortalPicker: () => void
-  completeLinkMode: (
-    targetRoomId: string, targetFloorId: string,
-    dir: Direction, oneWay: boolean,
-  ) => void
-
-  // -------------------------------------------------------------------------
-  // Floor exit wizard (Shift+Click)
-  // -------------------------------------------------------------------------
-  openFloorExitWizard: (roomId: string) => void
-  closeFloorExitWizard: () => void
-  /**
-   * Create a bidirectional up/down exit to another floor.
-   * If targetFloorId is null, a new floor is created with the given params.
-   * Auto-creates a room at the same (x,y) on the target floor if none exists.
-   * Returns null on success, or an error string.
-   */
-  createFloorExit: (
-    sourceRoomId: string,
-    dir: 'up' | 'down',
-    targetFloorId: string | null,
-    newFloorName?: string,
-    newFloorW?: number,
-    newFloorH?: number,
-  ) => string | null
+  openExitManager: (roomId: string) => void
+  closeExitManager: () => void
 
   // -------------------------------------------------------------------------
   // UI actions
@@ -155,8 +118,6 @@ interface MapStore {
   clearMultiSelect: () => void
   openRoomDataPanel: (roomId: string) => void
   closeRoomDataPanel: () => void
-  openExitOptionsPanel: (roomId: string) => void
-  closeExitOptionsPanel: () => void
   openNewMapDialog: () => void
   closeNewMapDialog: () => void
   openMapListDialog: () => void
@@ -234,18 +195,11 @@ export const useMapStore = create<MapStore>((set, get) => ({
   selectedRoomId: null,
   selectedRoomIds: [],
   roomDataPanelRoomId: null,
-  exitOptionsPanelRoomId: null,
+  exitManagerRoomId: null,
   newMapDialogOpen: false,
   mapListDialogOpen: false,
   leftSidebarOpen: true,
   activeTemplateId: null,
-  linkMode: false,
-  linkSourceRoomId: null,
-  linkSourceFloorId: null,
-  portalPickerOpen: false,
-  portalPickerTargetRoomId: null,
-  portalPickerTargetFloorId: null,
-  floorExitWizardRoomId: null,
   descriptionEditorRoomId: null,
   viewMode: 'floor',
   selectedAreaId: null,
@@ -281,7 +235,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
       selectedRoomIds: [],
       isDirty: false,
       roomDataPanelRoomId: null,
-      exitOptionsPanelRoomId: null,
+      exitManagerRoomId: null,
       viewMode: 'floor',
       selectedAreaId: null,
       worldCellPanelCell: null,
@@ -309,7 +263,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
       isDirty: true,
       newMapDialogOpen: false,
       roomDataPanelRoomId: null,
-      exitOptionsPanelRoomId: null,
+      exitManagerRoomId: null,
       viewMode: 'floor',
       selectedAreaId: null,
       worldCellPanelCell: null,
@@ -491,8 +445,8 @@ export const useMapStore = create<MapStore>((set, get) => ({
         selectedRoomId: state.selectedRoomId === roomId ? null : state.selectedRoomId,
         roomDataPanelRoomId:
           state.roomDataPanelRoomId === roomId ? null : state.roomDataPanelRoomId,
-        exitOptionsPanelRoomId:
-          state.exitOptionsPanelRoomId === roomId ? null : state.exitOptionsPanelRoomId,
+        exitManagerRoomId:
+          state.exitManagerRoomId === roomId ? null : state.exitManagerRoomId,
         isDirty: true,
       }
     })
@@ -529,8 +483,8 @@ export const useMapStore = create<MapStore>((set, get) => ({
         selectedRoomIds: [],
         roomDataPanelRoomId: idsSet.has(state.roomDataPanelRoomId ?? '')
           ? null : state.roomDataPanelRoomId,
-        exitOptionsPanelRoomId: idsSet.has(state.exitOptionsPanelRoomId ?? '')
-          ? null : state.exitOptionsPanelRoomId,
+        exitManagerRoomId: idsSet.has(state.exitManagerRoomId ?? '')
+          ? null : state.exitManagerRoomId,
         isDirty: true,
       }
     })
@@ -590,7 +544,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
     }
   },
 
-  addExit: (sourceRoomId, sourceFloorId, targetRoomId, targetFloorId, dir, oneWay) => {
+  addExit: (sourceRoomId, sourceFloorId, targetRoomId, targetFloorId, dir, oneWay, alias, exitDescription) => {
     set((state) => {
       if (!state.mapData) return state
       const srcFloor = state.mapData.floors.find((f) => f.id === sourceFloorId)
@@ -605,6 +559,8 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
       const exitFwd: Exit = {
         direction: dir, target_room_id: targetRoomId, target_floor_id: targetFloorId, one_way: oneWay,
+        ...(alias ? { alias } : {}),
+        ...(exitDescription ? { exit_description: exitDescription } : {}),
       }
       let mapData = patchFloorRooms(state.mapData, sourceFloorId, {
         [sourceRoomId]: { exits: [...srcRoom.exits, exitFwd] },
@@ -676,110 +632,11 @@ export const useMapStore = create<MapStore>((set, get) => ({
     })
   },
 
-  // --- Link mode ------------------------------------------------------------
+  // --- Exit manager modal ---------------------------------------------------
 
-  enterLinkMode: () =>
-    set({ linkMode: true, linkSourceRoomId: null, linkSourceFloorId: null }),
-
-  exitLinkMode: () =>
-    set({
-      linkMode: false,
-      linkSourceRoomId: null, linkSourceFloorId: null,
-      portalPickerOpen: false, portalPickerTargetRoomId: null, portalPickerTargetFloorId: null,
-    }),
-
-  setLinkSource: (roomId, floorId) =>
-    set({ linkSourceRoomId: roomId, linkSourceFloorId: floorId }),
-
-  openPortalPicker: (targetRoomId, targetFloorId) =>
-    set({ portalPickerOpen: true, portalPickerTargetRoomId: targetRoomId, portalPickerTargetFloorId: targetFloorId }),
-
-  closePortalPicker: () =>
-    set({ portalPickerOpen: false, portalPickerTargetRoomId: null, portalPickerTargetFloorId: null }),
-
-  completeLinkMode: (targetRoomId, targetFloorId, dir, oneWay) => {
-    const { linkSourceRoomId, linkSourceFloorId } = get()
-    if (!linkSourceRoomId || !linkSourceFloorId) return
-    get().addExit(linkSourceRoomId, linkSourceFloorId, targetRoomId, targetFloorId, dir, oneWay)
-    get().exitLinkMode()
-  },
-
-  // --- Floor exit wizard ----------------------------------------------------
-
-  openFloorExitWizard: (roomId) => set({ floorExitWizardRoomId: roomId }),
-  closeFloorExitWizard: () => set({ floorExitWizardRoomId: null }),
-
-  createFloorExit: (sourceRoomId, dir, targetFloorId, newFloorName, newFloorW, newFloorH) => {
-    let errorMsg: string | null = null
-
-    set((state) => {
-      if (!state.mapData || !state.activeFloorId) { errorMsg = 'No map loaded'; return state }
-
-      const sourceFloor = state.mapData.floors.find((f) => f.id === state.activeFloorId)
-      if (!sourceFloor) { errorMsg = 'No active floor'; return state }
-      const sourceRoom = sourceFloor.rooms[sourceRoomId]
-      if (!sourceRoom) { errorMsg = 'Room not found'; return state }
-      if (sourceRoom.exits.some((e) => e.direction === dir)) {
-        errorMsg = `Room already has a ${dir} exit`
-        return state
-      }
-
-      let mapData = state.mapData
-      let actualTargetFloorId = targetFloorId
-
-      // Create new floor if none specified
-      if (!actualTargetFloorId) {
-        const newFloor = createDefaultFloor(
-          generateId(),
-          newFloorName ?? `Floor ${mapData.floors.length}`,
-          newFloorW ?? sourceFloor.width,
-          newFloorH ?? sourceFloor.height,
-        )
-        actualTargetFloorId = newFloor.id
-        mapData = { ...mapData, floors: [...mapData.floors, newFloor] }
-      }
-
-      const targetFloor = mapData.floors.find((f) => f.id === actualTargetFloorId)
-      if (!targetFloor) { errorMsg = 'Target floor not found'; return state }
-
-      // Find or create room at same (x, y) on the target floor
-      let targetRoom = Object.values(targetFloor.rooms).find(
-        (r) => r.x === sourceRoom.x && r.y === sourceRoom.y,
-      )
-      if (!targetRoom) {
-        const newId = generateId()
-        const nr = createDefaultRoom(newId, sourceRoom.x, sourceRoom.y)
-        mapData = patchFloorRooms(mapData, actualTargetFloorId, { [newId]: nr })
-        targetRoom = nr
-      }
-
-      const oppDir = dir === 'up' ? 'down' : 'up'
-      const exitFwd: Exit = {
-        direction: dir, target_room_id: targetRoom.id,
-        target_floor_id: actualTargetFloorId, one_way: false,
-      }
-      const exitBwd: Exit = {
-        direction: oppDir, target_room_id: sourceRoomId,
-        target_floor_id: state.activeFloorId, one_way: false,
-      }
-
-      mapData = patchFloorRooms(mapData, state.activeFloorId, {
-        [sourceRoomId]: { exits: [...sourceRoom.exits, exitFwd] },
-      })
-
-      // Get target room after potential creation above
-      const tgtRoomNow = mapData.floors.find((f) => f.id === actualTargetFloorId)?.rooms[targetRoom.id]
-      if (tgtRoomNow) {
-        mapData = patchFloorRooms(mapData, actualTargetFloorId, {
-          [targetRoom.id]: { exits: [...tgtRoomNow.exits, exitBwd] },
-        })
-      }
-
-      return { mapData, floorExitWizardRoomId: null, isDirty: true }
-    })
-
-    return errorMsg
-  },
+  openExitManager: (roomId) =>
+    set({ exitManagerRoomId: roomId, roomDataPanelRoomId: null }),
+  closeExitManager: () => set({ exitManagerRoomId: null }),
 
   // --- UI actions -----------------------------------------------------------
 
@@ -788,12 +645,8 @@ export const useMapStore = create<MapStore>((set, get) => ({
   clearMultiSelect: () => set({ selectedRoomIds: [] }),
 
   openRoomDataPanel: (roomId) =>
-    set({ roomDataPanelRoomId: roomId, exitOptionsPanelRoomId: null }),
+    set({ roomDataPanelRoomId: roomId, exitManagerRoomId: null }),
   closeRoomDataPanel: () => set({ roomDataPanelRoomId: null }),
-
-  openExitOptionsPanel: (roomId) =>
-    set({ exitOptionsPanelRoomId: roomId, roomDataPanelRoomId: null }),
-  closeExitOptionsPanel: () => set({ exitOptionsPanelRoomId: null }),
 
   openNewMapDialog: () => set({ newMapDialogOpen: true }),
   closeNewMapDialog: () => set({ newMapDialogOpen: false }),
@@ -865,7 +718,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
       viewMode: mode,
       worldCellPanelCell: mode === 'floor' ? null : state.worldCellPanelCell,
       roomDataPanelRoomId: mode === 'world' ? null : state.roomDataPanelRoomId,
-      exitOptionsPanelRoomId: mode === 'world' ? null : state.exitOptionsPanelRoomId,
+      exitManagerRoomId: mode === 'world' ? null : state.exitManagerRoomId,
       descriptionEditorRoomId: mode === 'world' ? null : state.descriptionEditorRoomId,
     })),
 

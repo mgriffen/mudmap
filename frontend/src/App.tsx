@@ -10,8 +10,8 @@
  *   │ MapCanvas (flex-1)             │ Side Panel (opt.)  │
  *   └──────────────────────────────────────────────────────┘
  *
- * Modals (NewMapDialog, MapListDialog, FloorExitWizard,
- * PortalDirectionPicker) are rendered at root level.
+ * Modals (NewMapDialog, MapListDialog, ExitManager,
+ * DescriptionEditor) are rendered at root level.
  */
 import { useEffect } from 'react'
 import { useMapStore } from './store/mapStore'
@@ -20,13 +20,11 @@ import { MapCanvas } from './components/MapCanvas'
 import { FloorSelector } from './components/FloorSelector'
 import { LeftSidebar } from './components/LeftSidebar'
 import { RoomDataPanel } from './components/RoomDataPanel'
-import { ExitOptionsPanel } from './components/ExitOptionsPanel'
 import { NewMapDialog } from './components/NewMapDialog'
 import { MapListDialog } from './components/MapListDialog'
 import { TevetharaPanel } from './components/TevetharaPanel'
 import { MultiSelectPanel } from './components/MultiSelectPanel'
-import { FloorExitWizard } from './components/FloorExitWizard'
-import { PortalDirectionPicker } from './components/PortalDirectionPicker'
+import { ExitManager } from './components/ExitManager'
 import { DescriptionEditor } from './components/DescriptionEditor'
 import { WorldMapCanvas } from './components/WorldMapCanvas'
 import { WorldMapCellPanel } from './components/WorldMapCellPanel'
@@ -34,12 +32,10 @@ import { WorldMapCellPanel } from './components/WorldMapCellPanel'
 export default function App() {
   const {
     mapData, saveMap,
-    roomDataPanelRoomId, exitOptionsPanelRoomId,
+    roomDataPanelRoomId, exitManagerRoomId,
     selectedRoomIds,
     leftSidebarOpen,
     openNewMapDialog,
-    floorExitWizardRoomId,
-    portalPickerOpen,
     descriptionEditorRoomId,
     viewMode,
     worldCellPanelCell,
@@ -89,7 +85,6 @@ export default function App() {
           {viewMode === 'world' && worldCellPanelCell ? <WorldMapCellPanel /> :
            selectedRoomIds.length > 1                 ? <MultiSelectPanel />  :
            roomDataPanelRoomId                        ? <RoomDataPanel />     :
-           exitOptionsPanelRoomId                     ? <ExitOptionsPanel />  :
                                                         <TevetharaPanel />}
         </div>
       </div>
@@ -97,8 +92,7 @@ export default function App() {
       {/* Modal overlays */}
       <NewMapDialog />
       <MapListDialog />
-      {floorExitWizardRoomId    && <FloorExitWizard />}
-      {portalPickerOpen         && <PortalDirectionPicker />}
+      {exitManagerRoomId        && <ExitManager />}
       {descriptionEditorRoomId  && <DescriptionEditor />}
     </div>
   )

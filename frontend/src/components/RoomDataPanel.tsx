@@ -188,7 +188,7 @@ const BIOMES = [
 // Main panel component
 // ---------------------------------------------------------------------------
 export function RoomDataPanel() {
-  const { mapData, roomDataPanelRoomId, updateRoom, deleteRoom, closeRoomDataPanel, getActiveFloor, openDescriptionEditor } = useMapStore()
+  const { mapData, roomDataPanelRoomId, updateRoom, deleteRoom, closeRoomDataPanel, getActiveFloor, openDescriptionEditor, openExitManager } = useMapStore()
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   if (!roomDataPanelRoomId || !mapData) return null
@@ -393,8 +393,14 @@ export function RoomDataPanel() {
 
       </div>
 
-      {/* ── Delete Room footer ─────────────────────────────────────── */}
-      <div className="shrink-0 px-4 py-3 border-t border-border">
+      {/* ── Footer: Exits + Delete ─────────────────────────────────── */}
+      <div className="shrink-0 px-4 py-3 border-t border-border space-y-2">
+        <button
+          onClick={() => openExitManager(room.id)}
+          className="w-full flex items-center justify-center gap-2 text-xs text-accent border border-accent/30 hover:bg-accent/10 px-3 py-1.5 rounded transition-colors cursor-pointer"
+        >
+          Manage Exits ({room.exits.length})
+        </button>
         {confirmDelete ? (
           <div className="flex items-center gap-2">
             <span className="text-xs text-red-400 flex-1">Delete this room?</span>

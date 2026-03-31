@@ -1,0 +1,23 @@
+{
+  "id": "7132730b",
+  "name": "New Area",
+  "floors": [
+    {
+      "id": "e9908051",
+      "name": "Floor 0",
+      "width": 10,
+      "height": 10,
+      "rooms": {},
+      "area_id": null
+    }
+  ],
+  "areas": [],
+  "world_map": [],
+  "world_map_width": 10,
+  "world_map_height": 10,
+  "created_at": "2026-03-11T03:52:33.406257+00:00",
+  "updated_at": "2026-03-11T03:52:33.406257+00:00",
+  "width": null,
+  "height": null,
+  "rooms": null
+}
